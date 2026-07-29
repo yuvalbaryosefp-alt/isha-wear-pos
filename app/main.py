@@ -114,6 +114,12 @@ def pagina_principal(request: Request, error: str | None = None):
     # Arma una fila por producto con la lista de cantidades (una por sucursal).
     filas = []
     for p in productos:
+        # Margen % = (precio - costo) / precio × 100. Solo se puede calcular
+        # si hay precio Y costo, y el precio no es 0 (para no dividir entre 0).
+        margen = None
+        if p["precio"] and p["costo"] is not None:
+            margen = float((p["precio"] - p["costo"]) / p["precio"] * 100)
+
         filas.append({
             "id": p["id"],
             "sku": p["sku"],
@@ -121,6 +127,7 @@ def pagina_principal(request: Request, error: str | None = None):
             "categoria": p["categoria"],
             "precio": p["precio"],
             "costo": p["costo"],
+            "margen": margen,
             "cantidades": [stock_map.get((p["id"], s["id"]), 0) for s in sucursales],
         })
 
