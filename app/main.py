@@ -51,7 +51,8 @@ def pagina_principal(request: Request, error: str | None = None):
         )).mappings().all()
 
         productos = conn.execute(text(
-            "SELECT id, sku, titulo, categoria, precio, costo FROM productos ORDER BY titulo"
+            "SELECT id, sku, titulo, categoria, precio, costo FROM productos "
+            "WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
 
         stock_rows = conn.execute(text(
@@ -287,6 +288,42 @@ def crear_producto(
 
     # 303 hace que el navegador vuelva a "/" con un GET (evita reenviar el form).
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/productos/{producto_id}/eliminar")
+def eliminar_producto(producto_id: int):
+    """'Elimina' un producto SIN borrarlo de la base: lo marca inactivo.
+
+    Así desaparece de las listas y formularios, pero su historial de ventas
+    y movimientos se conserva intacto para que los reportes no pierdan datos.
+    """
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE productos SET activo = FALSE, actualizado_en = NOW() WHERE id = :id"
+        ), {"id": producto_id})
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/productos/{producto_id}/reactivar")
+def reactivar_producto(producto_id: int):
+    """Deshace un 'eliminar': vuelve a marcar el producto como activo."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE productos SET activo = TRUE, actualizado_en = NOW() WHERE id = :id"
+        ), {"id": producto_id})
+    return RedirectResponse("/desactivados", status_code=303)
+
+
+@app.get("/desactivados")
+def ver_desactivados(request: Request):
+    """Lista los productos eliminados (inactivos), por si hay que reactivar alguno."""
+    with engine.connect() as conn:
+        productos = conn.execute(text(
+            "SELECT id, sku, titulo, categoria FROM productos "
+            "WHERE activo = FALSE ORDER BY titulo"
+        )).mappings().all()
+
+    return templates.TemplateResponse(request, "desactivados.html", {"productos": productos})
 
 
 @app.get("/productos/{producto_id}/editar")

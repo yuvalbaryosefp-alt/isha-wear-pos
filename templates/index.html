@@ -171,7 +171,16 @@
             {% for cantidad in f.cantidades %}
               <td class="num">{{ cantidad }}</td>
             {% endfor %}
-            <td><a href="/productos/{{ f.id }}/editar">Editar</a></td>
+            <td>
+              <a href="/productos/{{ f.id }}/editar">Editar</a>
+              &nbsp;·&nbsp;
+              <form method="post" action="/productos/{{ f.id }}/eliminar" style="display:inline"
+                    onsubmit="return confirm('¿Eliminar {{ f.titulo|e }}? Se puede reactivar después desde Productos eliminados.');">
+                <button type="submit" style="margin:0; padding:2px 8px; font-size:13px; background:none; color:#B02A2A; border:1px solid #F5B5B5;">
+                  Eliminar
+                </button>
+              </form>
+            </td>
           </tr>
         {% endfor %}
       </tbody>

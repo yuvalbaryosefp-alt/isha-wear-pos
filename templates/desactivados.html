@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  <p><a href="/">&larr; Volver al inicio</a></p>
+
+  <h2>Productos eliminados</h2>
+  <p style="font-size:13px; color:#777; margin-top:-6px">
+    Estos productos están desactivados: no aparecen en el inventario ni en los formularios,
+    pero su historial de ventas se conserva. Puedes reactivarlos en cualquier momento.
+  </p>
+
+  {% if productos %}
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>SKU</th>
+          <th>Categoría</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in productos %}
+          <tr>
+            <td>{{ p.titulo }}</td>
+            <td>{{ p.sku }}</td>
+            <td>{{ p.categoria or "—" }}</td>
+            <td>
+              <form method="post" action="/productos/{{ p.id }}/reactivar" style="margin:0">
+                <button type="submit" style="margin:0; padding:6px 14px; font-size:13px">
+                  Reactivar
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">No hay productos eliminados.</div>
+  {% endif %}
+
+{% endblock %}

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS productos (
     categoria                  TEXT,                   -- Vestidos, Conjuntos, etc.
     precio                     NUMERIC(10, 2),         -- precio de venta (NUNCA usar float para dinero)
     costo                      NUMERIC(10, 2),         -- cuánto costó comprar la prenda
+    activo                     BOOLEAN NOT NULL DEFAULT TRUE,  -- FALSE = "eliminado" (se conserva su historial)
 
     -- Puente hacia Shopify (se llenan cuando conectemos la sincronización)
     shopify_product_id         BIGINT,
@@ -43,8 +44,9 @@ CREATE TABLE IF NOT EXISTS productos (
 );
 
 
--- Por si la tabla productos ya existía sin la columna costo, la agregamos.
+-- Por si la tabla productos ya existía sin estas columnas, las agregamos.
 ALTER TABLE productos ADD COLUMN IF NOT EXISTS costo NUMERIC(10, 2);
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT TRUE;
 
 
 -- ------------------------------------------------------------
