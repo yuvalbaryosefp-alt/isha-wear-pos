@@ -9,19 +9,48 @@ Para correrlo (desde la carpeta del proyecto):
 Luego abrir en el navegador:  http://127.0.0.1:8000
 """
 
+import os
+import secrets
 from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
 
-app = FastAPI(title="Inventario Isha Boutique")
+# ---------------------------------------------------------------------------
+# Protección con usuario y contraseña (HTTP Basic Auth).
+# El navegador muestra un cuadro de login antes de dejar ver cualquier página.
+# Usuario y contraseña viven en variables de entorno (Railway), NUNCA en el código.
+# ---------------------------------------------------------------------------
+seguridad = HTTPBasic()
+
+
+def requiere_login(credenciales: HTTPBasicCredentials = Depends(seguridad)) -> None:
+    usuario_correcto = os.getenv("APP_USUARIO", "admin")
+    clave_correcta = os.getenv("APP_CLAVE", "")
+
+    # compare_digest evita que un atacante adivine la clave midiendo tiempos de respuesta.
+    usuario_ok = secrets.compare_digest(credenciales.username, usuario_correcto)
+    clave_ok = secrets.compare_digest(credenciales.password, clave_correcta)
+
+    if not (usuario_ok and clave_ok):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario o contraseña incorrectos.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+# dependencies=[...] aplica el login a TODAS las rutas de la app, sin
+# tener que repetirlo una por una.
+app = FastAPI(title="Inventario Isha Boutique", dependencies=[Depends(requiere_login)])
 
 # Carpeta donde viven las plantillas HTML (se calcula relativa a este archivo).
 BASE_DIR = Path(__file__).resolve().parent.parent
