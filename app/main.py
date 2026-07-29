@@ -11,6 +11,7 @@ Luego abrir en el navegador:  http://127.0.0.1:8000
 
 from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
@@ -25,6 +26,10 @@ app = FastAPI(title="Inventario Isha Boutique")
 # Carpeta donde viven las plantillas HTML (se calcula relativa a este archivo).
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+# Postgres guarda las fechas en UTC. La convertimos a hora de Ciudad de México
+# solo para MOSTRARLA (en la base siempre se queda en UTC, que es lo correcto).
+ZONA_CDMX = ZoneInfo("America/Mexico_City")
 
 
 def parsear_dinero(texto: str) -> float | None:
@@ -54,7 +59,7 @@ def pagina_principal(request: Request, error: str | None = None):
         )).all()
 
         # Últimos 10 movimientos, con nombre de producto y sucursal.
-        movimientos = conn.execute(text(
+        movimientos_rows = conn.execute(text(
             "SELECT m.creado_en, p.titulo, s.nombre AS sucursal, "
             "       m.tipo, m.delta, m.motivo "
             "FROM movimientos m "
@@ -62,6 +67,12 @@ def pagina_principal(request: Request, error: str | None = None):
             "JOIN sucursales s ON s.id = m.sucursal_id "
             "ORDER BY m.creado_en DESC LIMIT 10"
         )).mappings().all()
+
+    # Convierte cada fecha (UTC) a hora de Ciudad de México, solo para mostrar.
+    movimientos = [
+        {**dict(m), "creado_en": m["creado_en"].astimezone(ZONA_CDMX)}
+        for m in movimientos_rows
+    ]
 
     # Diccionario para buscar rápido: (producto, sucursal) -> cantidad
     stock_map = {(r.producto_id, r.sucursal_id): r.cantidad for r in stock_rows}
