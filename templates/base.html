@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventario · Isha Boutique</title>
+  <style>
+    :root {
+      --rosa: #C8347A;
+      --charcoal: #2C2C2C;
+      --gris: #F5F5F5;
+      --borde: #E2E2E2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--charcoal);
+      background: var(--gris);
+      margin: 0;
+      padding: 0 16px 48px;
+    }
+    header {
+      background: var(--charcoal);
+      color: #fff;
+      margin: 0 -16px 24px;
+      padding: 20px 24px;
+    }
+    header h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
+    header span { color: var(--rosa); font-weight: 700; }
+    header nav { margin-top: 10px; }
+    header nav a {
+      color: #fff; text-decoration: none; font-size: 14px;
+      margin-right: 18px; opacity: 0.85;
+    }
+    header nav a:hover { opacity: 1; border-bottom: 2px solid var(--rosa); }
+    .contenedor { max-width: 900px; margin: 0 auto; }
+    h2 { font-size: 16px; margin: 28px 0 12px; }
+    .tarjeta {
+      background: #fff;
+      border: 1px solid var(--borde);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    label { display: block; font-size: 13px; margin: 10px 0 4px; font-weight: 600; }
+    input, select {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1px solid var(--borde);
+      border-radius: 7px;
+      font-size: 14px;
+      background: #fff;
+    }
+    .fila-form { display: flex; gap: 14px; flex-wrap: wrap; }
+    .fila-form > div { flex: 1; min-width: 160px; }
+    button {
+      margin-top: 16px;
+      background: var(--rosa);
+      color: #fff;
+      border: none;
+      padding: 11px 22px;
+      border-radius: 7px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { padding: 11px 12px; text-align: left; border-bottom: 1px solid var(--borde); font-size: 14px; }
+    th { background: var(--charcoal); color: #fff; font-weight: 600; }
+    td.num { text-align: center; font-variant-numeric: tabular-nums; }
+    .vacio { color: #888; padding: 20px; text-align: center; }
+    .aviso {
+      background: #FDECEC; color: #B02A2A;
+      border: 1px solid #F5B5B5; border-radius: 7px;
+      padding: 12px 14px; font-size: 14px; margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Inventario <span>Isha Boutique</span></h1>
+    <nav>
+      <a href="/">Inventario</a>
+      <a href="/reportes">Reportes</a>
+    </nav>
+  </header>
+  <div class="contenedor">
+    {% block contenido %}{% endblock %}
+  </div>
+</body>
+</html>

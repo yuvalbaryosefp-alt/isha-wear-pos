@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  <p><a href="/">&larr; Volver al inicio</a></p>
+
+  <h2>Editar producto</h2>
+  <div class="tarjeta">
+    <p style="margin:0 0 14px; color:#777; font-size:14px">
+      SKU: <strong>{{ producto.sku }}</strong> (no se puede cambiar)
+    </p>
+
+    <form method="post" action="/productos/{{ producto.id }}/editar">
+      <div class="fila-form">
+        <div>
+          <label for="titulo">Título</label>
+          <input type="text" id="titulo" name="titulo" value="{{ producto.titulo }}" required>
+        </div>
+        <div>
+          <label for="categoria">Categoría</label>
+          <input type="text" id="categoria" name="categoria" value="{{ producto.categoria or '' }}" list="categorias">
+          <datalist id="categorias">
+            <option value="Vestidos"><option value="Conjuntos"><option value="Blusas">
+            <option value="Tops"><option value="Pantalones"><option value="Sacos">
+            <option value="Chamarras"><option value="Sueteres"><option value="Faldas">
+            <option value="Jumpsuits"><option value="Shorts"><option value="Bufandas">
+            <option value="Joyería"><option value="Accesorios">
+          </datalist>
+        </div>
+      </div>
+      <div class="fila-form">
+        <div>
+          <label for="precio">Precio de venta (MXN)</label>
+          <input type="text" id="precio" name="precio"
+                 value="{{ '%.2f'|format(producto.precio) if producto.precio is not none else '' }}"
+                 placeholder="Ej. 2500">
+        </div>
+        <div>
+          <label for="costo">Costo de compra (MXN)</label>
+          <input type="text" id="costo" name="costo"
+                 value="{{ '%.2f'|format(producto.costo) if producto.costo is not none else '' }}"
+                 placeholder="Ej. 1100">
+        </div>
+      </div>
+      <button type="submit">Guardar cambios</button>
+    </form>
+  </div>
+
+{% endblock %}

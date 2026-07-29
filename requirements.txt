@@ -1,0 +1,23 @@
+# Framework web para la API
+fastapi
+
+# Servidor que corre la app (con recarga automática en desarrollo)
+uvicorn[standard]
+
+# ORM: nos deja hablar con PostgreSQL usando Python en vez de SQL a mano
+SQLAlchemy
+
+# Driver de PostgreSQL (psycopg 3; la versión "binary" es fácil de instalar en Windows)
+psycopg[binary]
+
+# Lee el archivo .env y carga las variables de entorno
+python-dotenv
+
+# Para llamar a la API de Shopify (script de sincronización)
+requests
+
+# Plantillas HTML (las páginas web que muestra la app)
+Jinja2
+
+# Permite que FastAPI lea datos de formularios
+python-multipart

@@ -1,0 +1,14 @@
+# Entorno virtual de Python
+.venv/
+venv/
+
+# Variables de entorno con credenciales (NUNCA subir a GitHub)
+.env
+
+# Cache de Python
+__pycache__/
+*.pyc
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{# Macro reutilizable para dibujar una tabla de desglose #}
+{% macro tabla_desglose(titulo, encabezado, filas) %}
+  <h2>{{ titulo }}</h2>
+  {% if filas %}
+    <table>
+      <thead>
+        <tr>
+          <th>{{ encabezado }}</th>
+          <th>Piezas</th>
+          <th>Ingresos</th>
+          <th>Costo</th>
+          <th>Ganancia bruta</th>
+          <th>Margen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in filas %}
+          <tr>
+            <td>{{ f.dim }}</td>
+            <td class="num">{{ f.piezas }}</td>
+            <td class="num">${{ "%.2f"|format(f.ingresos) }}</td>
+            <td class="num">${{ "%.2f"|format(f.costo) }}</td>
+            <td class="num">${{ "%.2f"|format(f.bruta) }}</td>
+            <td class="num">{{ "%.1f"|format(f.margen) }}%</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Sin ventas en este período.</div>
+  {% endif %}
+{% endmacro %}
+
+{% block contenido %}
+  <style>
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; }
+    .stat {
+      flex: 1; min-width: 150px; background: #fff;
+      border: 1px solid var(--borde); border-radius: 10px; padding: 16px;
+    }
+    .stat .n { font-size: 22px; font-weight: 700; }
+    .stat .l { font-size: 12px; color: #777; margin-top: 4px; }
+    .stat.destacado { background: var(--charcoal); color: #fff; }
+    .stat.destacado .l { color: #ccc; }
+    .filtro { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+    .filtro > div { flex: 0 0 auto; }
+    .filtro button { margin-top: 0; }
+  </style>
+
+  <h2>Reportes de ganancias</h2>
+
+  {# ---------- Filtro de período ---------- #}
+  <div class="tarjeta">
+    <form method="get" action="/reportes" class="filtro">
+      <div>
+        <label for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ desde }}">
+      </div>
+      <div>
+        <label for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ hasta }}">
+      </div>
+      <div><button type="submit">Ver</button></div>
+    </form>
+  </div>
+
+  {# ---------- Resumen del período ---------- #}
+  <h2>Resumen ({{ desde }} a {{ hasta }})</h2>
+  <div class="stats">
+    <div class="stat">
+      <div class="n">{{ total.piezas }}</div>
+      <div class="l">Piezas vendidas</div>
+    </div>
+    <div class="stat">
+      <div class="n">${{ "%.2f"|format(total.ingresos) }}</div>
+      <div class="l">Ingresos</div>
+    </div>
+    <div class="stat">
+      <div class="n">${{ "%.2f"|format(total.costo) }}</div>
+      <div class="l">Costo de lo vendido</div>
+    </div>
+    <div class="stat destacado">
+      <div class="n">${{ "%.2f"|format(total.bruta) }}</div>
+      <div class="l">Ganancia bruta</div>
+    </div>
+    <div class="stat">
+      <div class="n">{{ "%.1f"|format(total.margen) }}%</div>
+      <div class="l">Margen</div>
+    </div>
+  </div>
+
+  {# ---------- Desgloses ---------- #}
+  {{ tabla_desglose("Por categoría", "Categoría", por_categoria) }}
+  {{ tabla_desglose("Por sucursal", "Sucursal", por_sucursal) }}
+  {{ tabla_desglose("Por canal", "Canal", por_canal) }}
+
+{% endblock %}
