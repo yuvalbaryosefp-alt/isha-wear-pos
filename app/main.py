@@ -293,9 +293,13 @@ def crear_producto(
     titulo: str = Form(...),
     categoria: str = Form(""),
     costo: str = Form(""),
+    sucursal_inicial: str = Form(""),   # opcional: dónde llegó la mercancía
+    cantidad_inicial: str = Form(""),   # opcional: cuántas piezas llegaron
 ):
     """Da de alta un producto (momento de compra) y le crea stock en 0 en cada sucursal.
 
+    Si se indica sucursal + cantidad inicial, además registra esa entrada de una
+    vez (mismo efecto que ir después a "Registrar movimiento" → Entrada).
     El precio de venta NO se pide aquí: se define después con el botón Editar.
     """
     # Limpia los textos (quita espacios sobrantes).
@@ -305,6 +309,13 @@ def crear_producto(
 
     # Convierte el costo a número (None si viene vacío o mal escrito).
     costo_valor = parsear_dinero(costo)
+
+    # La cantidad inicial es opcional: si viene vacía o es 0, no se registra entrada.
+    try:
+        cantidad_inicial_num = int(cantidad_inicial.strip()) if cantidad_inicial.strip() else 0
+    except ValueError:
+        cantidad_inicial_num = 0
+    sucursal_inicial_id = int(sucursal_inicial) if sucursal_inicial.strip() else None
 
     try:
         # Todo dentro de una transacción: o se guarda todo, o nada.
@@ -322,10 +333,23 @@ def crear_producto(
             )).scalars().all()
 
             for suc_id in sucursal_ids:
+                # Si esta es la sucursal donde llegó la mercancía, ya nace con
+                # esa cantidad; las demás sucursales nacen en 0, como siempre.
+                cantidad_inicial_suc = (
+                    cantidad_inicial_num if suc_id == sucursal_inicial_id else 0
+                )
                 conn.execute(text(
                     "INSERT INTO stock (producto_id, sucursal_id, cantidad) "
-                    "VALUES (:producto_id, :sucursal_id, 0)"
-                ), {"producto_id": nuevo_id, "sucursal_id": suc_id})
+                    "VALUES (:producto_id, :sucursal_id, :cantidad)"
+                ), {"producto_id": nuevo_id, "sucursal_id": suc_id, "cantidad": cantidad_inicial_suc})
+
+            # Si hubo cantidad inicial, deja rastro en el historial de movimientos
+            # (igual que una entrada normal), para que quede trazable.
+            if sucursal_inicial_id is not None and cantidad_inicial_num > 0:
+                conn.execute(text(
+                    "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+                    "VALUES (:p, :s, 'entrada', :delta, 'alta inicial del producto')"
+                ), {"p": nuevo_id, "s": sucursal_inicial_id, "delta": cantidad_inicial_num})
 
     except IntegrityError:
         # Pasa si el SKU ya existe (regla UNIQUE). Avisamos sin romper.

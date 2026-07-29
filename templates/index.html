@@ -38,9 +38,25 @@
           <input type="text" id="costo" name="costo" placeholder="Ej. 1100">
         </div>
       </div>
+      <div class="fila-form">
+        <div>
+          <label for="sucursal_inicial">¿Dónde llegó? (opcional)</label>
+          <select id="sucursal_inicial" name="sucursal_inicial">
+            <option value="">— No registrar entrada todavía —</option>
+            {% for s in sucursales %}
+              <option value="{{ s.id }}">{{ s.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="cantidad_inicial">¿Cuántas piezas llegaron?</label>
+          <input type="number" id="cantidad_inicial" name="cantidad_inicial" min="0" placeholder="Ej. 5">
+        </div>
+      </div>
       <p style="font-size:12px; color:#777; margin:10px 0 0">
-        El <strong>precio de venta</strong> se pone después, con el botón <strong>Editar</strong>
-        de cada producto (cuando lo etiquetas para vender).
+        Si indicas sucursal y cantidad, el producto nace con ese stock listo para vender.
+        Si lo dejas vacío, nace en 0 y luego usas <strong>Registrar movimiento</strong> para sumarle stock.
+        El <strong>precio de venta</strong> se pone después, con el botón <strong>Editar</strong>.
       </p>
       <button type="submit">Guardar producto</button>
     </form>
