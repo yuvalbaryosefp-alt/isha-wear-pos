@@ -21,3 +21,6 @@ Jinja2
 
 # Permite que FastAPI lea datos de formularios
 python-multipart
+
+# Procesa las fotos de productos (las achica antes de guardarlas)
+Pillow

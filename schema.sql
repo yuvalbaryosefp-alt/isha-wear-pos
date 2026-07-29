@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS productos (
 ALTER TABLE productos ADD COLUMN IF NOT EXISTS costo NUMERIC(10, 2);
 ALTER TABLE productos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- Foto del producto: se guarda como bytes directamente en la base (BYTEA),
+-- ya redimensionada y comprimida por la app antes de llegar aquí.
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS foto BYTEA;
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS foto_tipo TEXT;  -- ej. 'image/jpeg'
+
 
 -- ------------------------------------------------------------
 -- 3. CLIENTAS  (CRM básico: quiénes compran y con qué frecuencia)

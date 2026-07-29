@@ -9,20 +9,26 @@ Para correrlo (desde la carpeta del proyecto):
 Luego abrir en el navegador:  http://127.0.0.1:8000
 """
 
+import io
 import os
 import secrets
 from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
+from PIL import Image
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
+
+# Ancho máximo de una foto guardada (en píxeles). Suficiente para identificar
+# la prenda en pantalla; evita que fotos de celular (varios MB) inflen la base.
+FOTO_ANCHO_MAX = 1000
 
 # ---------------------------------------------------------------------------
 # Protección con usuario y contraseña (HTTP Basic Auth).
@@ -71,6 +77,25 @@ def parsear_dinero(texto: str) -> float | None:
         return None
 
 
+def procesar_foto(contenido: bytes) -> tuple[bytes, str]:
+    """Redimensiona y comprime una foto antes de guardarla en la base.
+
+    Recibe los bytes tal como los subió el navegador (puede ser una foto de
+    celular de varios MB) y devuelve (bytes_listos, "image/jpeg") ya achicada
+    a un ancho máximo y comprimida como JPEG, para no inflar la base de datos.
+    """
+    imagen = Image.open(io.BytesIO(contenido))
+    imagen = imagen.convert("RGB")  # normaliza PNG/CMYK/transparencias a RGB plano
+
+    if imagen.width > FOTO_ANCHO_MAX:
+        alto_nuevo = int(imagen.height * (FOTO_ANCHO_MAX / imagen.width))
+        imagen = imagen.resize((FOTO_ANCHO_MAX, alto_nuevo), Image.LANCZOS)
+
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="JPEG", quality=82, optimize=True)
+    return buffer.getvalue(), "image/jpeg"
+
+
 @app.get("/")
 def pagina_principal(request: Request, error: str | None = None):
     """Muestra la tabla de productos con su stock por sucursal."""
@@ -80,8 +105,9 @@ def pagina_principal(request: Request, error: str | None = None):
         )).mappings().all()
 
         productos = conn.execute(text(
-            "SELECT id, sku, titulo, categoria, precio, costo FROM productos "
-            "WHERE activo = TRUE ORDER BY titulo"
+            "SELECT id, sku, titulo, categoria, precio, costo, "
+            "       (foto IS NOT NULL) AS tiene_foto "
+            "FROM productos WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
 
         clientas = conn.execute(text(
@@ -128,6 +154,7 @@ def pagina_principal(request: Request, error: str | None = None):
             "precio": p["precio"],
             "costo": p["costo"],
             "margen": margen,
+            "tiene_foto": p["tiene_foto"],
             "cantidades": [stock_map.get((p["id"], s["id"]), 0) for s in sucursales],
         })
 
@@ -295,6 +322,7 @@ def crear_producto(
     costo: str = Form(""),
     sucursal_inicial: str = Form(""),   # opcional: dónde llegó la mercancía
     cantidad_inicial: str = Form(""),   # opcional: cuántas piezas llegaron
+    foto: UploadFile | None = File(None),  # opcional: foto de la prenda
 ):
     """Da de alta un producto (momento de compra) y le crea stock en 0 en cada sucursal.
 
@@ -317,15 +345,21 @@ def crear_producto(
         cantidad_inicial_num = 0
     sucursal_inicial_id = int(sucursal_inicial) if sucursal_inicial.strip() else None
 
+    # Si se subió una foto (el campo viene vacío si no se eligió archivo), la procesamos.
+    foto_bytes, foto_tipo = None, None
+    if foto is not None and foto.filename:
+        foto_bytes, foto_tipo = procesar_foto(foto.file.read())
+
     try:
         # Todo dentro de una transacción: o se guarda todo, o nada.
         with engine.begin() as conn:
             nuevo_id = conn.execute(text(
-                "INSERT INTO productos (sku, titulo, categoria, costo) "
-                "VALUES (:sku, :titulo, :categoria, :costo) RETURNING id"
+                "INSERT INTO productos (sku, titulo, categoria, costo, foto, foto_tipo) "
+                "VALUES (:sku, :titulo, :categoria, :costo, :foto, :foto_tipo) RETURNING id"
             ), {
                 "sku": sku, "titulo": titulo,
                 "categoria": categoria, "costo": costo_valor,
+                "foto": foto_bytes, "foto_tipo": foto_tipo,
             }).scalar_one()
 
             sucursal_ids = conn.execute(text(
@@ -358,6 +392,20 @@ def crear_producto(
 
     # 303 hace que el navegador vuelva a "/" con un GET (evita reenviar el form).
     return RedirectResponse("/", status_code=303)
+
+
+@app.get("/productos/{producto_id}/foto")
+def foto_producto(producto_id: int):
+    """Devuelve la foto de un producto para que un <img src="..."> la muestre."""
+    with engine.connect() as conn:
+        fila = conn.execute(text(
+            "SELECT foto, foto_tipo FROM productos WHERE id = :id"
+        ), {"id": producto_id}).mappings().one_or_none()
+
+    if fila is None or fila["foto"] is None:
+        raise HTTPException(status_code=404, detail="Este producto no tiene foto.")
+
+    return Response(content=bytes(fila["foto"]), media_type=fila["foto_tipo"] or "image/jpeg")
 
 
 @app.post("/productos/{producto_id}/eliminar")
@@ -478,7 +526,9 @@ def editar_producto_form(request: Request, producto_id: int):
     """Muestra la pantalla para editar un producto (poner precio de venta, ajustar costo)."""
     with engine.connect() as conn:
         producto = conn.execute(text(
-            "SELECT id, sku, titulo, categoria, precio, costo FROM productos WHERE id = :id"
+            "SELECT id, sku, titulo, categoria, precio, costo, "
+            "       (foto IS NOT NULL) AS tiene_foto "
+            "FROM productos WHERE id = :id"
         ), {"id": producto_id}).mappings().one_or_none()
 
     if producto is None:
@@ -494,19 +544,33 @@ def editar_producto(
     categoria: str = Form(""),
     precio: str = Form(""),
     costo: str = Form(""),
+    foto: UploadFile | None = File(None),
 ):
-    """Guarda los cambios del producto (título, categoría, precio de venta y costo)."""
+    """Guarda los cambios del producto (título, categoría, precio, costo y foto).
+
+    La foto solo se reemplaza si se elige un archivo nuevo; si no, se conserva
+    la que ya tenía (no hace falta volver a subirla en cada edición).
+    """
+    campos_sql = (
+        "titulo = :titulo, categoria = :categoria, "
+        "precio = :precio, costo = :costo, actualizado_en = NOW()"
+    )
+    parametros = {
+        "titulo": titulo.strip(),
+        "categoria": categoria.strip() or None,
+        "precio": parsear_dinero(precio),
+        "costo": parsear_dinero(costo),
+        "id": producto_id,
+    }
+
+    if foto is not None and foto.filename:
+        foto_bytes, foto_tipo = procesar_foto(foto.file.read())
+        campos_sql += ", foto = :foto, foto_tipo = :foto_tipo"
+        parametros["foto"] = foto_bytes
+        parametros["foto_tipo"] = foto_tipo
+
     with engine.begin() as conn:
-        conn.execute(text(
-            "UPDATE productos SET titulo = :titulo, categoria = :categoria, "
-            "precio = :precio, costo = :costo, actualizado_en = NOW() WHERE id = :id"
-        ), {
-            "titulo": titulo.strip(),
-            "categoria": categoria.strip() or None,
-            "precio": parsear_dinero(precio),
-            "costo": parsear_dinero(costo),
-            "id": producto_id,
-        })
+        conn.execute(text(f"UPDATE productos SET {campos_sql} WHERE id = :id"), parametros)
 
     return RedirectResponse("/", status_code=303)
 

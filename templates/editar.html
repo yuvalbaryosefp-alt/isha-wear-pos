@@ -10,7 +10,7 @@
       SKU: <strong>{{ producto.sku }}</strong> (no se puede cambiar)
     </p>
 
-    <form method="post" action="/productos/{{ producto.id }}/editar">
+    <form method="post" action="/productos/{{ producto.id }}/editar" enctype="multipart/form-data">
       <div class="fila-form">
         <div>
           <label for="titulo">Título</label>
@@ -40,6 +40,25 @@
           <input type="text" id="costo" name="costo"
                  value="{{ '%.2f'|format(producto.costo) if producto.costo is not none else '' }}"
                  placeholder="Ej. 1100">
+        </div>
+      </div>
+      <div class="fila-form">
+        <div>
+          <label for="foto">Foto de la prenda</label>
+          {% if producto.tiene_foto %}
+            <p style="margin:0 0 8px">
+              <img src="/productos/{{ producto.id }}/foto" alt="{{ producto.titulo }}"
+                   style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--borde)">
+            </p>
+          {% endif %}
+          <input type="file" id="foto" name="foto" accept="image/*">
+          <p style="font-size:12px; color:#777; margin:6px 0 0">
+            {% if producto.tiene_foto %}
+              Sube un archivo solo si quieres reemplazar la foto actual. Si lo dejas vacío, se conserva.
+            {% else %}
+              Este producto todavía no tiene foto.
+            {% endif %}
+          </p>
         </div>
       </div>
       <button type="submit">Guardar cambios</button>
