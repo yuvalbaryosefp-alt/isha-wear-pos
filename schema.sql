@@ -5,8 +5,10 @@
 -- Modelo:
 --   sucursales   -> las tiendas físicas (Tecamachalco, Prado Norte)
 --   productos    -> espejo de los productos (con sus IDs de Shopify)
+--   clientas     -> CRM básico: quiénes compran y con qué frecuencia
 --   stock        -> FOTO actual: cuánto hay de cada producto por sucursal
 --   movimientos  -> HISTORIAL: cada entrada, venta, ajuste o traspaso
+--   ventas       -> registro financiero de cada venta (opcionalmente ligada a una clienta)
 -- ============================================================
 
 
@@ -50,7 +52,22 @@ ALTER TABLE productos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT T
 
 
 -- ------------------------------------------------------------
--- 3. STOCK  (estado actual: una fila por producto+sucursal)
+-- 3. CLIENTAS  (CRM básico: quiénes compran y con qué frecuencia)
+--    Va ANTES de "ventas" porque ventas hace referencia a esta tabla.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS clientas (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nombre       TEXT NOT NULL,
+    telefono     TEXT,             -- WhatsApp: el canal clave con la clienta
+    email        TEXT,
+    cumpleanos   DATE,             -- opcional; útil para detectar fechas próximas
+    notas        TEXT,             -- tallas, preferencias, gustos
+    creada_en    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+-- ------------------------------------------------------------
+-- 4. STOCK  (estado actual: una fila por producto+sucursal)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS stock (
     id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -65,7 +82,7 @@ CREATE TABLE IF NOT EXISTS stock (
 
 
 -- ------------------------------------------------------------
--- 4. MOVIMIENTOS  (historial de todo lo que cambia el stock)
+-- 5. MOVIMIENTOS  (historial de todo lo que cambia el stock)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS movimientos (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -84,13 +101,15 @@ CREATE TABLE IF NOT EXISTS movimientos (
 
 
 -- ------------------------------------------------------------
--- 5. VENTAS  (registro financiero de cada venta)
+-- 6. VENTAS  (registro financiero de cada venta)
 --    Guarda a cuánto se vendió y cuánto costó, para calcular ganancias.
+--    cliente_id es OPCIONAL: se puede vender sin ligar a una clienta.
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ventas (
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     producto_id     BIGINT NOT NULL REFERENCES productos(id)  ON DELETE CASCADE,
     sucursal_id     BIGINT NOT NULL REFERENCES sucursales(id) ON DELETE CASCADE,
+    cliente_id      BIGINT REFERENCES clientas(id) ON DELETE SET NULL,
 
     -- Canal de venta: boutique física o tienda en línea
     canal           TEXT NOT NULL CHECK (canal IN ('boutique', 'ecommerce')),
@@ -102,6 +121,12 @@ CREATE TABLE IF NOT EXISTS ventas (
 );
 
 
+-- Por si la tabla ventas ya existía sin esta columna (creada antes del CRM), la agregamos.
+-- ON DELETE SET NULL: si se borra una clienta, sus ventas pasadas NO se pierden,
+-- solo quedan "sin clienta asociada".
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cliente_id BIGINT REFERENCES clientas(id) ON DELETE SET NULL;
+
+
 -- ------------------------------------------------------------
 -- Índices para que las consultas frecuentes sean rápidas
 -- ------------------------------------------------------------
@@ -110,6 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_movimientos_producto  ON movimientos (producto_id
 CREATE INDEX IF NOT EXISTS idx_movimientos_creado    ON movimientos (creado_en);
 CREATE INDEX IF NOT EXISTS idx_ventas_creada         ON ventas (creada_en);
 CREATE INDEX IF NOT EXISTS idx_ventas_sucursal       ON ventas (sucursal_id);
+CREATE INDEX IF NOT EXISTS idx_ventas_cliente        ON ventas (cliente_id);
 
 
 -- ------------------------------------------------------------

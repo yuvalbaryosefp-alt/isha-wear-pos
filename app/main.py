@@ -55,6 +55,10 @@ def pagina_principal(request: Request, error: str | None = None):
             "WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
 
+        clientas = conn.execute(text(
+            "SELECT id, nombre FROM clientas ORDER BY nombre"
+        )).mappings().all()
+
         stock_rows = conn.execute(text(
             "SELECT producto_id, sucursal_id, cantidad FROM stock"
         )).all()
@@ -97,6 +101,7 @@ def pagina_principal(request: Request, error: str | None = None):
         {
             "sucursales": sucursales,
             "productos": productos,
+            "clientas": clientas,
             "filas": filas,
             "movimientos": movimientos,
             "error": error,
@@ -168,6 +173,7 @@ def registrar_venta(
     canal: str = Form(...),
     cantidad: str = Form(...),
     precio: str = Form(""),
+    cliente_id: str = Form(""),  # opcional: puede venir vacío ("Sin clienta")
 ):
     """Registra una venta: descuenta stock y guarda la info financiera."""
     canal = canal.strip()
@@ -184,6 +190,9 @@ def registrar_venta(
         return RedirectResponse("/?error=Canal de venta inválido.", status_code=303)
 
     precio_indicado = parsear_dinero(precio)
+
+    # Convierte el select de clienta a número o None ("Sin clienta" llega vacío).
+    cliente_id_num = int(cliente_id) if cliente_id.strip() else None
 
     with engine.begin() as conn:
         # Trae precio de lista y costo del producto.
@@ -228,14 +237,15 @@ def registrar_venta(
             "VALUES (:p, :s, 'venta', :delta, :motivo)"
         ), {"p": producto_id, "s": sucursal_id, "delta": -cantidad_num, "motivo": f"venta {canal}"})
 
-        # 3) Guarda el registro financiero.
+        # 3) Guarda el registro financiero (cliente_id puede ser None).
         conn.execute(text(
             "INSERT INTO ventas "
-            "(producto_id, sucursal_id, canal, cantidad, precio_unitario, costo_unitario) "
-            "VALUES (:p, :s, :canal, :cant, :precio, :costo)"
+            "(producto_id, sucursal_id, canal, cantidad, precio_unitario, costo_unitario, cliente_id) "
+            "VALUES (:p, :s, :canal, :cant, :precio, :costo, :cliente)"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
+            "cliente": cliente_id_num,
         })
 
     return RedirectResponse("/", status_code=303)
@@ -312,6 +322,83 @@ def reactivar_producto(producto_id: int):
             "UPDATE productos SET activo = TRUE, actualizado_en = NOW() WHERE id = :id"
         ), {"id": producto_id})
     return RedirectResponse("/desactivados", status_code=303)
+
+
+@app.get("/clientas")
+def ver_clientas(request: Request, error: str | None = None):
+    """Lista las clientas con cuánto y cuándo le han comprado (recurrencia)."""
+    with engine.connect() as conn:
+        filas = conn.execute(text(
+            "SELECT c.id, c.nombre, c.telefono, "
+            "       COUNT(v.id) AS num_compras, "
+            "       COALESCE(SUM(v.precio_unitario * v.cantidad), 0) AS total_comprado, "
+            "       MAX(v.creada_en) AS ultima_compra "
+            "FROM clientas c "
+            "LEFT JOIN ventas v ON v.cliente_id = c.id "
+            "GROUP BY c.id, c.nombre, c.telefono "
+            "ORDER BY c.nombre"
+        )).mappings().all()
+
+    # Convierte la fecha de última compra a hora de CDMX (si existe).
+    clientas = []
+    for f in filas:
+        d = dict(f)
+        if d["ultima_compra"] is not None:
+            d["ultima_compra"] = d["ultima_compra"].astimezone(ZONA_CDMX)
+        clientas.append(d)
+
+    return templates.TemplateResponse(request, "clientas.html", {"clientas": clientas, "error": error})
+
+
+@app.post("/clientas")
+def crear_clienta(
+    nombre: str = Form(...),
+    telefono: str = Form(""),
+    email: str = Form(""),
+    cumpleanos: str = Form(""),
+    notas: str = Form(""),
+):
+    """Da de alta una clienta nueva."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO clientas (nombre, telefono, email, cumpleanos, notas) "
+            "VALUES (:nombre, :telefono, :email, :cumpleanos, :notas)"
+        ), {
+            "nombre": nombre.strip(),
+            "telefono": telefono.strip() or None,
+            "email": email.strip() or None,
+            "cumpleanos": cumpleanos.strip() or None,
+            "notas": notas.strip() or None,
+        })
+    return RedirectResponse("/clientas", status_code=303)
+
+
+@app.get("/clientas/{cliente_id}")
+def ver_clienta(request: Request, cliente_id: int):
+    """Ficha de una clienta: sus datos y su historial completo de compras."""
+    with engine.connect() as conn:
+        clienta = conn.execute(text(
+            "SELECT id, nombre, telefono, email, cumpleanos, notas FROM clientas WHERE id = :id"
+        ), {"id": cliente_id}).mappings().one_or_none()
+
+        if clienta is None:
+            return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
+
+        compras_rows = conn.execute(text(
+            "SELECT v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, v.canal "
+            "FROM ventas v "
+            "JOIN productos p ON p.id = v.producto_id "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
+            "WHERE v.cliente_id = :id ORDER BY v.creada_en DESC"
+        ), {"id": cliente_id}).mappings().all()
+
+    compras = []
+    for c in compras_rows:
+        d = dict(c)
+        d["creada_en"] = d["creada_en"].astimezone(ZONA_CDMX)
+        compras.append(d)
+
+    return templates.TemplateResponse(request, "clienta_detalle.html", {"clienta": clienta, "compras": compras})
 
 
 @app.get("/desactivados")

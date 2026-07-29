@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  {% if error %}
+    <div class="aviso">{{ error }}</div>
+  {% endif %}
+
+  {# ---------- Alta de clienta ---------- #}
+  <h2>Agregar clienta</h2>
+  <div class="tarjeta">
+    <form method="post" action="/clientas">
+      <div class="fila-form">
+        <div>
+          <label for="nombre">Nombre</label>
+          <input type="text" id="nombre" name="nombre" required>
+        </div>
+        <div>
+          <label for="telefono">Teléfono (WhatsApp)</label>
+          <input type="text" id="telefono" name="telefono" placeholder="Ej. 55 1234 5678">
+        </div>
+      </div>
+      <div class="fila-form">
+        <div>
+          <label for="email">Email (opcional)</label>
+          <input type="text" id="email" name="email">
+        </div>
+        <div>
+          <label for="cumpleanos">Cumpleaños (opcional)</label>
+          <input type="date" id="cumpleanos" name="cumpleanos">
+        </div>
+      </div>
+      <div class="fila-form">
+        <div>
+          <label for="notas">Notas (tallas, preferencias, gustos)</label>
+          <input type="text" id="notas" name="notas">
+        </div>
+      </div>
+      <button type="submit">Guardar clienta</button>
+    </form>
+  </div>
+
+  {# ---------- Lista de clientas con recurrencia ---------- #}
+  <h2>Clientas</h2>
+  {% if clientas %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Teléfono</th>
+          <th>Compras</th>
+          <th>Total comprado</th>
+          <th>Última compra</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clientas %}
+          <tr>
+            <td><a href="/clientas/{{ c.id }}">{{ c.nombre }}</a></td>
+            <td>{{ c.telefono or "—" }}</td>
+            <td class="num">{{ c.num_compras }}</td>
+            <td class="num">${{ "%.2f"|format(c.total_comprado) }}</td>
+            <td>{{ c.ultima_compra.strftime("%d/%m/%Y") if c.ultima_compra else "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Todavía no hay clientas registradas.</div>
+  {% endif %}
+
+{% endblock %}

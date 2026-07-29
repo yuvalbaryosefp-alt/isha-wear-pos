@@ -86,6 +86,17 @@
             <input type="text" id="v_precio" name="precio" placeholder="Vacío = precio de lista">
           </div>
         </div>
+        <div class="fila-form">
+          <div>
+            <label for="v_clienta">Clienta (opcional)</label>
+            <select id="v_clienta" name="cliente_id">
+              <option value="">— Sin clienta —</option>
+              {% for c in clientas %}
+                <option value="{{ c.id }}">{{ c.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
         <button type="submit">Registrar venta</button>
       </form>
     </div>

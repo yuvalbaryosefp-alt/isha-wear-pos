@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  <p><a href="/clientas">&larr; Volver a Clientas</a></p>
+
+  <h2>{{ clienta.nombre }}</h2>
+  <div class="tarjeta">
+    <p style="margin:0 0 4px"><strong>Teléfono:</strong> {{ clienta.telefono or "—" }}</p>
+    <p style="margin:0 0 4px"><strong>Email:</strong> {{ clienta.email or "—" }}</p>
+    <p style="margin:0 0 4px"><strong>Cumpleaños:</strong> {{ clienta.cumpleanos.strftime("%d/%m/%Y") if clienta.cumpleanos else "—" }}</p>
+    <p style="margin:0"><strong>Notas:</strong> {{ clienta.notas or "—" }}</p>
+  </div>
+
+  <h2>Historial de compras</h2>
+  {% if compras %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Producto</th>
+          <th>Cantidad</th>
+          <th>Precio</th>
+          <th>Sucursal</th>
+          <th>Canal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in compras %}
+          <tr>
+            <td>{{ c.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
+            <td>{{ c.titulo }}</td>
+            <td class="num">{{ c.cantidad }}</td>
+            <td class="num">${{ "%.2f"|format(c.precio_unitario) }}</td>
+            <td>{{ c.sucursal }}</td>
+            <td>{{ "Boutique" if c.canal == "boutique" else "E-commerce" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Esta clienta todavía no tiene compras registradas.</div>
+  {% endif %}
+
+{% endblock %}
