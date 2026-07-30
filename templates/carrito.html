@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  {% if error %}
+    <div class="aviso">{{ error }}</div>
+  {% endif %}
+
+  <h2>Venta múltiple (carrito)</h2>
+  <p style="font-size:13px; color:#777; margin-top:-8px">
+    Para cuando una clienta se lleva varias prendas juntas: agrégalas todas aquí y regístralas de una sola vez.
+    Al terminar, se abre la nota de pedido lista para imprimir.
+  </p>
+
+  <div class="tarjeta">
+    <form method="post" action="/ventas/carrito">
+      <div class="fila-form">
+        <div>
+          <label for="c_sucursal">Sucursal (de dónde sale)</label>
+          <select id="c_sucursal" name="sucursal_id" required>
+            {% for s in sucursales %}
+              <option value="{{ s.id }}">{{ s.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="c_canal">Canal</label>
+          <select id="c_canal" name="canal" required>
+            <option value="boutique">Boutique (venta en tienda)</option>
+            <option value="ecommerce">E-commerce (venta en línea)</option>
+          </select>
+        </div>
+        <div>
+          <label for="c_clienta">Clienta (opcional)</label>
+          <select id="c_clienta" name="cliente_id">
+            <option value="">— Sin clienta —</option>
+            {% for c in clientas %}
+              <option value="{{ c.id }}">{{ c.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <h2 style="margin-top:22px">Prendas</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:180px">Producto</th>
+              <th>Tipo</th>
+              <th>Cant.</th>
+              <th>Precio</th>
+              <th>Descuento %</th>
+              <th>Subtotal</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="filas-carrito"></tbody>
+        </table>
+      </div>
+      <button type="button" onclick="agregarFila()" style="margin-top:10px; background:var(--charcoal)">
+        + Agregar prenda
+      </button>
+      <p style="font-size:16px; margin:14px 0 0">
+        Total del pedido: <strong id="total-carrito">$0.00</strong>
+      </p>
+
+      <div class="fila-form" style="margin-top:16px">
+        <div>
+          <label for="c_monto_pagado">Monto pagado (opcional)</label>
+          <input type="text" id="c_monto_pagado" name="monto_pagado" placeholder="Vacío = pagó todo">
+        </div>
+        <div>
+          <label for="c_metodo_pago">Método de pago</label>
+          <select id="c_metodo_pago" name="metodo_pago">
+            <option value="efectivo">Efectivo</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="transferencia">Transferencia</option>
+          </select>
+        </div>
+      </div>
+      <p style="font-size:12px; color:#777; margin:-6px 0 10px">
+        Si dejas vacío el monto pagado, se asume que pagó todo el pedido. Si escribes un monto menor,
+        se reparte pagando primero la prenda 1, luego la 2, etc., hasta agotarlo.
+      </p>
+
+      <button type="submit">Registrar venta múltiple</button>
+    </form>
+  </div>
+
+  <script>
+    var PRODUCTOS = {{ productos_json|safe }};
+
+    function opcionesProducto() {
+      return PRODUCTOS.map(function (p) {
+        var precio = p.precio === null ? '' : p.precio;
+        var precioMayoreo = p.precioMayoreo === null ? '' : p.precioMayoreo;
+        return '<option value="' + p.id + '" data-precio="' + precio + '" data-precio-mayoreo="' + precioMayoreo + '">' +
+               p.texto + '</option>';
+      }).join('');
+    }
+
+    function agregarFila() {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><select name="producto_id" class="sel-producto">' + opcionesProducto() + '</select></td>' +
+        '<td><select name="tipo_precio" class="sel-tipo"><option value="menudeo">Menudeo</option><option value="mayoreo">Mayoreo</option></select></td>' +
+        '<td><input type="number" name="cantidad" min="1" value="1" class="inp-cantidad" style="width:60px"></td>' +
+        '<td><input type="text" name="precio" class="inp-precio" style="width:90px"></td>' +
+        '<td><input type="number" name="descuento" min="0" max="100" step="0.01" class="inp-descuento" style="width:70px"></td>' +
+        '<td class="num subtotal-fila">—</td>' +
+        '<td><button type="button" onclick="quitarFila(this)" style="margin:0; padding:6px 10px; background:none; color:#B02A2A; border:1px solid #F5B5B5">✕</button></td>';
+      document.getElementById('filas-carrito').appendChild(tr);
+      conectarFila(tr);
+    }
+
+    function quitarFila(boton) {
+      var filas = document.getElementById('filas-carrito');
+      if (filas.children.length <= 1) return; // el carrito no puede quedar vacío
+      boton.closest('tr').remove();
+      recalcularTotal();
+    }
+
+    function conectarFila(tr) {
+      var selProducto = tr.querySelector('.sel-producto');
+      var selTipo = tr.querySelector('.sel-tipo');
+      var inpPrecio = tr.querySelector('.inp-precio');
+
+      function rellenarPrecio() {
+        var opcion = selProducto.options[selProducto.selectedIndex];
+        if (!opcion) return;
+        var campo = selTipo.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
+        var valor = opcion.dataset[campo];
+        if (valor) inpPrecio.value = parseFloat(valor).toFixed(2);
+        recalcularFila(tr);
+      }
+
+      selProducto.addEventListener('change', rellenarPrecio);
+      selTipo.addEventListener('change', rellenarPrecio);
+      tr.querySelectorAll('.inp-precio, .inp-cantidad, .inp-descuento').forEach(function (el) {
+        el.addEventListener('input', function () { recalcularFila(tr); });
+      });
+
+      rellenarPrecio();
+    }
+
+    function recalcularFila(tr) {
+      var precio = parseFloat(tr.querySelector('.inp-precio').value);
+      var cantidad = parseInt(tr.querySelector('.inp-cantidad').value, 10);
+      var descuento = parseFloat(tr.querySelector('.inp-descuento').value);
+      var subtotalEl = tr.querySelector('.subtotal-fila');
+
+      if (isNaN(precio) || isNaN(cantidad)) {
+        subtotalEl.textContent = '—';
+      } else {
+        var precioConDescuento = isNaN(descuento) ? precio : precio * (1 - descuento / 100);
+        subtotalEl.textContent = '$' + (precioConDescuento * cantidad).toFixed(2);
+      }
+      recalcularTotal();
+    }
+
+    function recalcularTotal() {
+      var total = 0;
+      document.querySelectorAll('#filas-carrito tr').forEach(function (tr) {
+        var precio = parseFloat(tr.querySelector('.inp-precio').value);
+        var cantidad = parseInt(tr.querySelector('.inp-cantidad').value, 10);
+        var descuento = parseFloat(tr.querySelector('.inp-descuento').value);
+        if (!isNaN(precio) && !isNaN(cantidad)) {
+          var precioConDescuento = isNaN(descuento) ? precio : precio * (1 - descuento / 100);
+          total += precioConDescuento * cantidad;
+        }
+      });
+      document.getElementById('total-carrito').textContent = '$' + total.toFixed(2);
+    }
+
+    // Arranca el carrito con una fila lista para usarse.
+    agregarFila();
+  </script>
+
+{% endblock %}

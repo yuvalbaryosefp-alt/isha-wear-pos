@@ -10,6 +10,7 @@ Luego abrir en el navegador:  http://127.0.0.1:8000
 """
 
 import io
+import json
 import os
 import secrets
 from datetime import date, datetime
@@ -85,6 +86,20 @@ def calcular_precio_desde_utilidad(costo, utilidad_pct) -> float | None:
     if costo is None or utilidad_pct is None:
         return None
     return round(float(costo) * (1 + utilidad_pct / 100), 2)
+
+
+def resolver_precio_venta(producto_row, tipo_precio: str, precio_indicado, descuento_pct) -> float | None:
+    """Calcula el precio unitario final de una venta (reutilizado por venta
+    individual y venta múltiple). Devuelve None si falta el precio de lista
+    del tipo elegido y tampoco se indicó un precio manual.
+    """
+    precio_lista = producto_row["precio"] if tipo_precio == "menudeo" else producto_row["precio_mayoreo"]
+    precio_unitario = precio_indicado if precio_indicado is not None else precio_lista
+    if precio_unitario is None:
+        return None
+    if descuento_pct:
+        precio_unitario = round(float(precio_unitario) * (1 - descuento_pct / 100), 2)
+    return float(precio_unitario)
 
 
 def calcular_margen(precio, costo) -> float | None:
@@ -296,20 +311,12 @@ def registrar_venta(
         if producto is None:
             return RedirectResponse("/?error=Producto no encontrado.", status_code=303)
 
-        # El precio de lista depende del tipo elegido (menudeo o mayoreo).
-        precio_lista = producto["precio"] if tipo_precio == "menudeo" else producto["precio_mayoreo"]
-
-        # Si no escribieron un precio manual, se usa el precio de lista del tipo elegido.
-        precio_unitario = precio_indicado if precio_indicado is not None else precio_lista
+        precio_unitario = resolver_precio_venta(producto, tipo_precio, precio_indicado, descuento_pct)
         if precio_unitario is None:
             return RedirectResponse(
                 f"/?error=Falta el precio de {tipo_precio} (el producto no tiene ese precio de lista).",
                 status_code=303,
             )
-
-        # El descuento se aplica al final, sobre el precio ya resuelto (de lista o manual).
-        if descuento_pct:
-            precio_unitario = round(float(precio_unitario) * (1 - descuento_pct / 100), 2)
 
         costo_unitario = producto["costo"]  # puede ser None si no se capturó
 
@@ -533,6 +540,181 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[])):
         "clienta": clienta_nombre,
         "fecha": datetime.now(ZONA_CDMX),
     })
+
+
+@app.get("/ventas/carrito")
+def carrito_venta(request: Request, error: str | None = None):
+    """Formulario para registrar varias ventas de una vez (ej. una clienta
+    que se lleva 7 prendas), en lugar de repetir el formulario una por una.
+    """
+    with engine.connect() as conn:
+        productos = conn.execute(text(
+            "SELECT id, sku, titulo, precio, precio_mayoreo FROM productos "
+            "WHERE activo = TRUE ORDER BY titulo"
+        )).mappings().all()
+        sucursales = conn.execute(text(
+            "SELECT id, nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
+        )).mappings().all()
+        clientas = conn.execute(text(
+            "SELECT id, nombre FROM clientas ORDER BY nombre"
+        )).mappings().all()
+
+    # Lista de productos como JSON, para que el JavaScript arme filas nuevas
+    # del carrito sin recargar la página.
+    productos_json = json.dumps([
+        {
+            "id": p["id"],
+            "texto": f"{p['titulo']} ({p['sku']})",
+            "precio": float(p["precio"]) if p["precio"] is not None else None,
+            "precioMayoreo": float(p["precio_mayoreo"]) if p["precio_mayoreo"] is not None else None,
+        }
+        for p in productos
+    ])
+
+    return templates.TemplateResponse(request, "carrito.html", {
+        "sucursales": sucursales, "clientas": clientas, "error": error,
+        "productos_json": productos_json,
+    })
+
+
+@app.post("/ventas/carrito")
+def registrar_carrito(
+    sucursal_id: int = Form(...),
+    canal: str = Form(...),
+    cliente_id: str = Form(""),
+    monto_pagado: str = Form(""),
+    metodo_pago: str = Form("efectivo"),
+    producto_id: list[int] = Form(...),
+    tipo_precio: list[str] = Form(...),
+    cantidad: list[str] = Form(...),
+    precio: list[str] = Form(...),
+    descuento: list[str] = Form(...),
+):
+    """Registra varias ventas de una sola vez (carrito). Comparten sucursal,
+    canal, clienta y un pago combinado que se reparte entre ellas (se va
+    saldando una por una, en orden, hasta que se acaba lo pagado). Al
+    terminar, redirige directo a la nota de pedido imprimible con todas.
+    """
+    canal = canal.strip()
+    metodo_pago = metodo_pago.strip()
+
+    if metodo_pago not in ("efectivo", "tarjeta", "transferencia"):
+        return RedirectResponse("/ventas/carrito?error=Método de pago inválido.", status_code=303)
+    if canal not in ("boutique", "ecommerce"):
+        return RedirectResponse("/ventas/carrito?error=Canal de venta inválido.", status_code=303)
+
+    n = len(producto_id)
+    if n == 0 or not (len(tipo_precio) == len(cantidad) == len(precio) == len(descuento) == n):
+        return RedirectResponse("/ventas/carrito?error=Agrega al menos una prenda al carrito.", status_code=303)
+
+    cliente_id_num = int(cliente_id) if cliente_id.strip() else None
+
+    with engine.begin() as conn:
+        # --- Paso 1: resolver y validar CADA renglón (solo lecturas, nada se
+        # escribe todavía) para no dejar el carrito a medias si algo falla. ---
+        items_resueltos = []
+        for i in range(n):
+            tipo_i = tipo_precio[i].strip()
+            if tipo_i not in ("menudeo", "mayoreo"):
+                return RedirectResponse(f"/ventas/carrito?error=Tipo de precio inválido en la prenda {i + 1}.", status_code=303)
+
+            try:
+                cantidad_i = int(cantidad[i].strip())
+            except ValueError:
+                return RedirectResponse(f"/ventas/carrito?error=Cantidad inválida en la prenda {i + 1}.", status_code=303)
+            if cantidad_i <= 0:
+                return RedirectResponse(f"/ventas/carrito?error=La cantidad debe ser mayor a 0 en la prenda {i + 1}.", status_code=303)
+
+            descuento_i = parsear_dinero(descuento[i])
+            if descuento_i is not None and not (0 <= descuento_i <= 100):
+                return RedirectResponse(f"/ventas/carrito?error=Descuento inválido en la prenda {i + 1}.", status_code=303)
+
+            producto = conn.execute(text(
+                "SELECT precio, precio_mayoreo, costo FROM productos WHERE id = :p"
+            ), {"p": producto_id[i]}).mappings().one_or_none()
+            if producto is None:
+                return RedirectResponse(f"/ventas/carrito?error=Producto no encontrado en la prenda {i + 1}.", status_code=303)
+
+            precio_unitario_i = resolver_precio_venta(producto, tipo_i, parsear_dinero(precio[i]), descuento_i)
+            if precio_unitario_i is None:
+                return RedirectResponse(
+                    f"/ventas/carrito?error=Falta el precio de {tipo_i} en la prenda {i + 1}.", status_code=303,
+                )
+
+            # Verifica stock suficiente en la sucursal compartida del carrito.
+            stock_actual = conn.execute(text(
+                "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
+            ), {"p": producto_id[i], "s": sucursal_id}).scalar()
+            stock_actual = stock_actual if stock_actual is not None else 0
+            if stock_actual < cantidad_i:
+                return RedirectResponse(
+                    f"/ventas/carrito?error=No hay suficiente stock en la prenda {i + 1} "
+                    f"(hay {stock_actual}, pediste {cantidad_i}).",
+                    status_code=303,
+                )
+
+            items_resueltos.append({
+                "producto_id": producto_id[i], "tipo_precio": tipo_i, "cantidad": cantidad_i,
+                "precio_unitario": precio_unitario_i, "costo_unitario": producto["costo"],
+                "descuento_pct": descuento_i, "subtotal": precio_unitario_i * cantidad_i,
+            })
+
+        # --- Paso 2: validar el pago combinado ANTES de escribir nada. ---
+        total_pedido = sum(it["subtotal"] for it in items_resueltos)
+        monto_pagado_num = parsear_dinero(monto_pagado)
+        if monto_pagado_num is None:
+            monto_pagado_num = total_pedido
+
+        if monto_pagado_num < 0 or monto_pagado_num > total_pedido:
+            return RedirectResponse(
+                f"/ventas/carrito?error=El monto pagado debe estar entre 0 y el total (${total_pedido:.2f}).",
+                status_code=303,
+            )
+
+        # --- Paso 3: ya validado todo; ahora sí se descuenta stock y se crea cada venta. ---
+        venta_ids = []
+        for it in items_resueltos:
+            conn.execute(text(
+                "UPDATE stock SET cantidad = cantidad - :c, actualizado_en = NOW() "
+                "WHERE producto_id = :p AND sucursal_id = :s"
+            ), {"c": it["cantidad"], "p": it["producto_id"], "s": sucursal_id})
+
+            conn.execute(text(
+                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+                "VALUES (:p, :s, 'venta', :delta, :motivo)"
+            ), {
+                "p": it["producto_id"], "s": sucursal_id,
+                "delta": -it["cantidad"], "motivo": f"venta {canal} (carrito)",
+            })
+
+            venta_id = conn.execute(text(
+                "INSERT INTO ventas "
+                "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
+                " costo_unitario, cliente_id, descuento_pct) "
+                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento) "
+                "RETURNING id"
+            ), {
+                "p": it["producto_id"], "s": sucursal_id, "canal": canal, "tipo_precio": it["tipo_precio"],
+                "cant": it["cantidad"], "precio": it["precio_unitario"], "costo": it["costo_unitario"],
+                "cliente": cliente_id_num, "descuento": it["descuento_pct"],
+            }).scalar_one()
+            venta_ids.append(venta_id)
+
+        # --- Paso 4: reparte el pago combinado entre las ventas creadas, en
+        # orden, hasta agotarlo (la primera se salda completa, luego la
+        # siguiente, etc. — igual que pagar varias cosas con un solo billete).
+        restante = monto_pagado_num
+        for it, venta_id in zip(items_resueltos, venta_ids):
+            pago_este = min(restante, it["subtotal"])
+            if pago_este > 0:
+                conn.execute(text(
+                    "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
+                ), {"v": venta_id, "metodo": metodo_pago, "monto": round(pago_este, 2)})
+            restante -= pago_este
+
+    # Lleva directo a la nota de pedido imprimible con las ventas recién creadas.
+    query = "&".join(f"id={vid}" for vid in venta_ids)
+    return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
 @app.post("/productos")
