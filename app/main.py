@@ -16,12 +16,12 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from PIL import Image
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
@@ -470,6 +470,69 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
         ), {"v": venta_id, "metodo": metodo, "monto": monto_num})
 
     return RedirectResponse("/ventas", status_code=303)
+
+
+@app.get("/ventas/nota")
+def nota_pedido(request: Request, id: list[int] = Query(default=[])):
+    """Genera una nota de pedido imprimible con varias ventas juntas (ej. las
+    10 prendas que se llevó una clienta), seleccionadas con checkboxes en /ventas.
+    """
+    if not id:
+        return RedirectResponse(
+            "/ventas?error=Selecciona al menos una venta para imprimir la nota.",
+            status_code=303,
+        )
+
+    ids_stmt = lambda sql: text(sql).bindparams(bindparam("ids", expanding=True))
+
+    with engine.connect() as conn:
+        filas = conn.execute(ids_stmt(
+            "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta "
+            "FROM ventas v "
+            "JOIN productos p ON p.id = v.producto_id "
+            "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "WHERE v.id IN :ids ORDER BY v.id"
+        ), {"ids": id}).mappings().all()
+
+        pagos = conn.execute(ids_stmt(
+            "SELECT venta_id, monto FROM pagos WHERE venta_id IN :ids"
+        ), {"ids": id}).all()
+
+    if not filas:
+        return RedirectResponse("/ventas?error=No se encontraron las ventas seleccionadas.", status_code=303)
+
+    # Suma lo pagado de cada venta seleccionada.
+    pagado_por_venta: dict[int, float] = {}
+    for venta_id, monto in pagos:
+        pagado_por_venta[venta_id] = pagado_por_venta.get(venta_id, 0.0) + float(monto)
+
+    items = []
+    total = 0.0
+    pagado_total = 0.0
+    clientas_distintas = set()
+    for f in filas:
+        subtotal = float(f["precio_unitario"]) * f["cantidad"]
+        total += subtotal
+        pagado_total += pagado_por_venta.get(f["id"], 0.0)
+        clientas_distintas.add(f["clienta"])
+        items.append({
+            "titulo": f["titulo"], "sku": f["sku"],
+            "cantidad": f["cantidad"], "precio_unitario": float(f["precio_unitario"]),
+            "subtotal": subtotal,
+        })
+
+    # Si todas las ventas seleccionadas son de la misma clienta, se muestra su
+    # nombre; si se mezclan clientas distintas (o ninguna), se deja en blanco.
+    clienta_nombre = next(iter(clientas_distintas)) if len(clientas_distintas) == 1 else None
+
+    return templates.TemplateResponse(request, "nota_pedido.html", {
+        "items": items,
+        "total": total,
+        "pagado": pagado_total,
+        "saldo": round(total - pagado_total, 2),
+        "clienta": clienta_nombre,
+        "fecha": datetime.now(ZONA_CDMX),
+    })
 
 
 @app.post("/productos")

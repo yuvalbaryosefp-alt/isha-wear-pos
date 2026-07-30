@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nota de pedido · Isha Boutique</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #2C2C2C;
+      max-width: 480px;
+      margin: 24px auto;
+      padding: 0 16px 40px;
+    }
+    h1 { font-size: 20px; margin: 0 0 2px; color: #C8347A; }
+    .direccion { font-size: 12px; color: #777; margin-bottom: 18px; line-height: 1.4; }
+    .datos p { margin: 3px 0; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 7px 4px; font-size: 13px; text-align: left; border-bottom: 1px solid #E2E2E2; }
+    th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .totales { margin-top: 6px; }
+    .totales td { border: none; padding: 3px 4px; font-size: 13px; }
+    .totales .label { text-align: right; font-weight: 600; }
+    .totales .valor { text-align: right; width: 100px; font-variant-numeric: tabular-nums; }
+    .totales .grande td { font-size: 16px; font-weight: 700; }
+    button.imprimir {
+      margin-top: 22px;
+      background: #C8347A; color: #fff; border: none;
+      padding: 11px 22px; border-radius: 7px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    @media print {
+      button.imprimir { display: none; }
+      body { margin: 0; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Isha Boutique</h1>
+  <div class="direccion">
+    Av. de las Fuentes 174, Local 20, Plaza Tecamachalco, Naucalpan, Edomex<br>
+    Tel. 55 3416 1100
+  </div>
+
+  <div class="datos">
+    <p><strong>Nota de pedido</strong></p>
+    <p>Fecha: {{ fecha.strftime("%d/%m/%Y %H:%M") }}</p>
+    {% if clienta %}
+      <p>Clienta: {{ clienta }}</p>
+    {% endif %}
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Prenda</th>
+        <th class="num">Cant.</th>
+        <th class="num">Precio</th>
+        <th class="num">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+        <tr>
+          <td>{{ it.titulo }}<br><span style="font-size:11px; color:#999">{{ it.sku }}</span></td>
+          <td class="num">{{ it.cantidad }}</td>
+          <td class="num">${{ "%.2f"|format(it.precio_unitario) }}</td>
+          <td class="num">${{ "%.2f"|format(it.subtotal) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totales">
+    <tr class="grande">
+      <td class="label">Total:</td>
+      <td class="valor">${{ "%.2f"|format(total) }}</td>
+    </tr>
+    <tr>
+      <td class="label">Pagado:</td>
+      <td class="valor">${{ "%.2f"|format(pagado) }}</td>
+    </tr>
+    <tr>
+      <td class="label">Saldo pendiente:</td>
+      <td class="valor">${{ "%.2f"|format(saldo) }}</td>
+    </tr>
+  </table>
+
+  <button class="imprimir" onclick="window.print()">Imprimir</button>
+</body>
+</html>

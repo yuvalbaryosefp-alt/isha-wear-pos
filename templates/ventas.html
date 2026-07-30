@@ -6,12 +6,25 @@
     <div class="aviso">{{ error }}</div>
   {% endif %}
 
-  <h2>Ventas y estado de pago</h2>
+  <h2>
+    Ventas y estado de pago
+    <button type="submit" form="form-nota" style="margin:0 0 0 10px; padding:6px 14px; font-size:13px">
+      🖨️ Imprimir nota de pedido
+    </button>
+  </h2>
+  <p style="font-size:12px; color:#777; margin:-8px 0 12px">
+    Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta) y da clic en "Imprimir nota de pedido".
+  </p>
+
+  {# Form "vacío": las casillas y el botón de arriba se asocian a él vía el atributo form="form-nota",
+     así evitamos anidar un <form> dentro de los formularios de "Abonar" de cada fila (HTML no lo permite). #}
+  <form id="form-nota" method="get" action="/ventas/nota"></form>
 
   {% if ventas %}
     <table>
       <thead>
         <tr>
+          <th></th>
           <th>Fecha</th>
           <th>Producto</th>
           <th>Sucursal</th>
@@ -29,6 +42,7 @@
       <tbody>
         {% for v in ventas %}
           <tr>
+            <td><input type="checkbox" name="id" value="{{ v.id }}" form="form-nota"></td>
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
             <td>{{ v.titulo }}</td>
             <td>{{ v.sucursal }}</td>
