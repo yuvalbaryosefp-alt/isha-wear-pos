@@ -252,10 +252,16 @@ def registrar_venta(
     precio: str = Form(""),
     descuento: str = Form(""),   # opcional: % de descuento sobre el precio ya resuelto
     cliente_id: str = Form(""),  # opcional: puede venir vacío ("Sin clienta")
+    monto_pagado: str = Form(""),   # opcional: vacío = se asume que pagó todo
+    metodo_pago: str = Form("efectivo"),
 ):
-    """Registra una venta: descuenta stock y guarda la info financiera."""
+    """Registra una venta: descuenta stock y guarda la info financiera y el pago."""
     canal = canal.strip()
     tipo_precio = tipo_precio.strip()
+    metodo_pago = metodo_pago.strip()
+
+    if metodo_pago not in ("efectivo", "tarjeta", "transferencia"):
+        return RedirectResponse("/?error=Método de pago inválido.", status_code=303)
 
     # La cantidad debe ser un entero mayor a 0.
     try:
@@ -307,6 +313,20 @@ def registrar_venta(
 
         costo_unitario = producto["costo"]  # puede ser None si no se capturó
 
+        # Valida el monto pagado ANTES de escribir nada (si no, un error aquí
+        # dejaría la venta a medias, porque el bloque ya habría hecho commit).
+        # Si se deja vacío, se asume que pagó todo (el caso más común).
+        total_venta = float(precio_unitario) * cantidad_num
+        monto_pagado_num = parsear_dinero(monto_pagado)
+        if monto_pagado_num is None:
+            monto_pagado_num = total_venta
+
+        if monto_pagado_num < 0 or monto_pagado_num > total_venta:
+            return RedirectResponse(
+                f"/?error=El monto pagado debe estar entre 0 y el total (${total_venta:.2f}).",
+                status_code=303,
+            )
+
         # Verifica que haya stock suficiente en esa sucursal.
         actual = conn.execute(text(
             "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
@@ -332,18 +352,124 @@ def registrar_venta(
         ), {"p": producto_id, "s": sucursal_id, "delta": -cantidad_num, "motivo": f"venta {canal}"})
 
         # 3) Guarda el registro financiero (cliente_id puede ser None).
-        conn.execute(text(
+        venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
             " costo_unitario, cliente_id, descuento_pct) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento)"
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento) "
+            "RETURNING id"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
             "cliente": cliente_id_num, "descuento": descuento_pct,
-        })
+        }).scalar_one()
+
+        # 4) Registra el pago inicial (ya validado arriba). Si el monto es 0,
+        #    la venta queda "pendiente" (apartado sin anticipo).
+        if monto_pagado_num > 0:
+            conn.execute(text(
+                "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
+            ), {"v": venta_id, "metodo": metodo_pago, "monto": monto_pagado_num})
 
     return RedirectResponse("/", status_code=303)
+
+
+@app.get("/ventas")
+def ver_ventas(request: Request, error: str | None = None):
+    """Punto de venta: lista las ventas con su estado de pago (pagado/parcial/pendiente)."""
+    with engine.connect() as conn:
+        ventas_rows = conn.execute(text(
+            "SELECT v.id, v.creada_en, p.titulo, s.nombre AS sucursal, v.canal, "
+            "       v.tipo_precio, c.nombre AS clienta, v.cantidad, v.precio_unitario, "
+            "       (v.precio_unitario * v.cantidad) AS total "
+            "FROM ventas v "
+            "JOIN productos p ON p.id = v.producto_id "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
+            "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "ORDER BY v.creada_en DESC LIMIT 200"
+        )).mappings().all()
+
+        pagos_rows = conn.execute(text(
+            "SELECT venta_id, metodo, monto, creado_en FROM pagos ORDER BY creado_en"
+        )).mappings().all()
+
+    # Agrupa los pagos por venta: venta_id -> lista de pagos.
+    pagos_por_venta: dict[int, list] = {}
+    for pg in pagos_rows:
+        pagos_por_venta.setdefault(pg["venta_id"], []).append(pg)
+
+    ventas = []
+    for v in ventas_rows:
+        pagos_venta = pagos_por_venta.get(v["id"], [])
+        pagado = sum(float(pg["monto"]) for pg in pagos_venta)
+        total = float(v["total"])
+        saldo = round(total - pagado, 2)
+
+        if saldo <= 0:
+            estado = "Pagado"
+        elif pagado > 0:
+            estado = "Parcial"
+        else:
+            estado = "Pendiente"
+
+        etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
+        metodos = ", ".join(etiquetas_metodo.get(pg["metodo"], pg["metodo"]) for pg in pagos_venta) or "—"
+
+        ventas.append({
+            "id": v["id"],
+            "creada_en": v["creada_en"].astimezone(ZONA_CDMX),
+            "titulo": v["titulo"],
+            "sucursal": v["sucursal"],
+            "canal": v["canal"],
+            "tipo_precio": v["tipo_precio"],
+            "clienta": v["clienta"],
+            "cantidad": v["cantidad"],
+            "total": total,
+            "pagado": pagado,
+            "saldo": saldo,
+            "estado": estado,
+            "metodos": metodos,
+        })
+
+    return templates.TemplateResponse(request, "ventas.html", {"ventas": ventas, "error": error})
+
+
+@app.post("/ventas/{venta_id}/pagos")
+def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...)):
+    """Registra un abono adicional a una venta que ya existe (para saldar el pendiente)."""
+    metodo = metodo.strip()
+    if metodo not in ("efectivo", "tarjeta", "transferencia"):
+        return RedirectResponse("/ventas?error=Método de pago inválido.", status_code=303)
+
+    monto_num = parsear_dinero(monto)
+    if monto_num is None or monto_num <= 0:
+        return RedirectResponse("/ventas?error=El monto del abono debe ser mayor a 0.", status_code=303)
+
+    with engine.begin() as conn:
+        venta = conn.execute(text(
+            "SELECT precio_unitario, cantidad FROM ventas WHERE id = :id"
+        ), {"id": venta_id}).mappings().one_or_none()
+
+        if venta is None:
+            return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
+
+        total = float(venta["precio_unitario"]) * venta["cantidad"]
+        pagado_actual = conn.execute(text(
+            "SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE venta_id = :id"
+        ), {"id": venta_id}).scalar()
+        saldo = round(total - float(pagado_actual), 2)
+
+        if monto_num > saldo:
+            return RedirectResponse(
+                f"/ventas?error=El abono (${monto_num:.2f}) es mayor al saldo pendiente (${saldo:.2f}).",
+                status_code=303,
+            )
+
+        conn.execute(text(
+            "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
+        ), {"v": venta_id, "metodo": metodo, "monto": monto_num})
+
+    return RedirectResponse("/ventas", status_code=303)
 
 
 @app.post("/productos")

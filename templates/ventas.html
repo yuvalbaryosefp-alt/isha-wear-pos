@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  {% if error %}
+    <div class="aviso">{{ error }}</div>
+  {% endif %}
+
+  <h2>Ventas y estado de pago</h2>
+
+  {% if ventas %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Producto</th>
+          <th>Sucursal</th>
+          <th>Canal</th>
+          <th>Clienta</th>
+          <th>Cant.</th>
+          <th>Total</th>
+          <th>Pagado</th>
+          <th>Saldo</th>
+          <th>Estado</th>
+          <th>Métodos</th>
+          <th>Abonar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in ventas %}
+          <tr>
+            <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
+            <td>{{ v.titulo }}</td>
+            <td>{{ v.sucursal }}</td>
+            <td>{{ "Boutique" if v.canal == "boutique" else "E-commerce" }}</td>
+            <td>{{ v.clienta or "—" }}</td>
+            <td class="num">{{ v.cantidad }}</td>
+            <td class="num">${{ "%.2f"|format(v.total) }}</td>
+            <td class="num">${{ "%.2f"|format(v.pagado) }}</td>
+            <td class="num">${{ "%.2f"|format(v.saldo) }}</td>
+            <td>
+              <span class="badge {{ v.estado|lower }}">{{ v.estado }}</span>
+            </td>
+            <td>{{ v.metodos }}</td>
+            <td>
+              {% if v.saldo > 0 %}
+                <form method="post" action="/ventas/{{ v.id }}/pagos" style="display:flex; gap:6px; align-items:center">
+                  <input type="text" name="monto" placeholder="Monto" style="width:80px; padding:5px 7px" required>
+                  <select name="metodo" style="width:110px; padding:5px 7px">
+                    <option value="efectivo">Efectivo</option>
+                    <option value="tarjeta">Tarjeta</option>
+                    <option value="transferencia">Transferencia</option>
+                  </select>
+                  <button type="submit" style="margin:0; padding:6px 12px; font-size:13px">Abonar</button>
+                </form>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Todavía no hay ventas registradas.</div>
+  {% endif %}
+
+{% endblock %}

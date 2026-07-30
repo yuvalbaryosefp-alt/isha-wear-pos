@@ -74,6 +74,13 @@
       border: 1px solid #F5B5B5; border-radius: 7px;
       padding: 12px 14px; font-size: 14px; margin-bottom: 16px;
     }
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+    }
+    .badge.pagado { background: #E3F5EA; color: #1a7a3c; }
+    .badge.parcial { background: #FFF3DA; color: #9a6a00; }
+    .badge.pendiente { background: #FDECEC; color: #B02A2A; }
   </style>
 </head>
 <body>
@@ -81,6 +88,7 @@
     <h1>Inventario <span>Isha Boutique</span></h1>
     <nav>
       <a href="/">Inventario</a>
+      <a href="/ventas">Ventas</a>
       <a href="/clientas">Clientas</a>
       <a href="/reportes">Reportes</a>
       <a href="/desactivados">Productos eliminados</a>

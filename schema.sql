@@ -9,6 +9,7 @@
 --   stock        -> FOTO actual: cuánto hay de cada producto por sucursal
 --   movimientos  -> HISTORIAL: cada entrada, venta, ajuste o traspaso
 --   ventas       -> registro financiero de cada venta (opcionalmente ligada a una clienta)
+--   pagos        -> abonos hechos a una venta (permite pagos parciales / apartados)
 -- ============================================================
 
 
@@ -148,6 +149,22 @@ ALTER TABLE ventas ADD COLUMN IF NOT EXISTS tipo_precio TEXT NOT NULL DEFAULT 'm
 -- Porcentaje de descuento aplicado en la venta (NULL = sin descuento).
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS descuento_pct NUMERIC(5, 2)
     CHECK (descuento_pct >= 0 AND descuento_pct <= 100);
+
+
+-- ------------------------------------------------------------
+-- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)
+--    Permite pagos parciales: el saldo pendiente = total de la venta
+--    menos la suma de sus pagos.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pagos (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    venta_id    BIGINT NOT NULL REFERENCES ventas(id) ON DELETE CASCADE,
+    metodo      TEXT NOT NULL CHECK (metodo IN ('efectivo', 'tarjeta', 'transferencia')),
+    monto       NUMERIC(10, 2) NOT NULL CHECK (monto > 0),
+    creado_en   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pagos_venta ON pagos (venta_id);
 
 
 -- ------------------------------------------------------------
