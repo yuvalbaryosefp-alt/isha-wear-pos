@@ -136,7 +136,11 @@
             <label for="v_producto">Producto</label>
             <select id="v_producto" name="producto_id" required>
               {% for p in productos %}
-                <option value="{{ p.id }}">{{ p.titulo }} ({{ p.sku }})</option>
+                <option value="{{ p.id }}"
+                        data-precio="{{ p.precio if p.precio is not none else '' }}"
+                        data-precio-mayoreo="{{ p.precio_mayoreo if p.precio_mayoreo is not none else '' }}">
+                  {{ p.titulo }} ({{ p.sku }})
+                </option>
               {% endfor %}
             </select>
           </div>
@@ -171,16 +175,20 @@
         </div>
         <div class="fila-form">
           <div>
-            <label for="v_precio">Precio de venta (opcional)</label>
-            <input type="text" id="v_precio" name="precio" placeholder="Vacío = usa el precio de lista según el tipo elegido">
+            <label for="v_precio">Precio de venta</label>
+            <input type="text" id="v_precio" name="precio" placeholder="Se llena solo según menudeo/mayoreo">
           </div>
           <div>
             <label for="v_descuento">Descuento % (opcional)</label>
             <input type="number" id="v_descuento" name="descuento" min="0" max="100" step="0.01" placeholder="Ej. 10">
           </div>
         </div>
-        <p style="font-size:12px; color:#777; margin:-6px 0 10px">
-          El descuento se aplica sobre el precio ya resuelto (el de lista según el tipo, o el que escribas arriba).
+        <p style="font-size:12px; color:#777; margin:-6px 0 4px">
+          El precio se rellena solo al elegir producto y tipo (menudeo/mayoreo); puedes ajustarlo a mano si negocias otro.
+          El descuento se aplica sobre ese precio.
+        </p>
+        <p style="font-size:14px; margin:0 0 10px">
+          Precio final con descuento: <strong id="v_precio_final">—</strong>
         </p>
         <div class="fila-form">
           <div>
@@ -214,6 +222,50 @@
         <button type="submit">Registrar venta</button>
       </form>
     </div>
+
+    <script>
+      // Al elegir producto o tipo (menudeo/mayoreo), rellena el precio de venta
+      // solo. Al escribir un descuento, muestra en vivo el precio final (esto
+      // NO se guarda en el campo de precio: el descuento lo aplica el servidor
+      // por separado, para no aplicarlo dos veces).
+      (function () {
+        var productoEl = document.getElementById('v_producto');
+        var tipoEl = document.getElementById('v_tipo_precio');
+        var precioEl = document.getElementById('v_precio');
+        var descuentoEl = document.getElementById('v_descuento');
+        var finalEl = document.getElementById('v_precio_final');
+
+        function rellenarPrecio() {
+          var opcion = productoEl.options[productoEl.selectedIndex];
+          if (!opcion) return;
+          var atributo = tipoEl.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
+          var valor = opcion.dataset[atributo];
+          if (valor) {
+            precioEl.value = parseFloat(valor).toFixed(2);
+          }
+          actualizarFinal();
+        }
+
+        function actualizarFinal() {
+          var precio = parseFloat(precioEl.value);
+          var descuento = parseFloat(descuentoEl.value);
+          if (isNaN(precio)) {
+            finalEl.textContent = '—';
+            return;
+          }
+          var final = isNaN(descuento) ? precio : precio * (1 - descuento / 100);
+          finalEl.textContent = '$' + final.toFixed(2);
+        }
+
+        productoEl.addEventListener('change', rellenarPrecio);
+        tipoEl.addEventListener('change', rellenarPrecio);
+        precioEl.addEventListener('input', actualizarFinal);
+        descuentoEl.addEventListener('input', actualizarFinal);
+
+        // Al cargar la página, rellena con el producto/tipo ya seleccionados por defecto.
+        rellenarPrecio();
+      })();
+    </script>
   {% endif %}
 
   {# ---------- Formulario para registrar un movimiento de stock ---------- #}
