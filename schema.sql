@@ -128,8 +128,9 @@ CREATE TABLE IF NOT EXISTS ventas (
     tipo_precio     TEXT NOT NULL DEFAULT 'menudeo' CHECK (tipo_precio IN ('menudeo', 'mayoreo')),
 
     cantidad        INTEGER NOT NULL CHECK (cantidad > 0),
-    precio_unitario NUMERIC(10, 2) NOT NULL,   -- a cuánto se vendió cada pieza
+    precio_unitario NUMERIC(10, 2) NOT NULL,   -- a cuánto se vendió cada pieza (YA con descuento aplicado)
     costo_unitario  NUMERIC(10, 2),            -- costo de la prenda al momento de vender (foto)
+    descuento_pct   NUMERIC(5, 2) CHECK (descuento_pct >= 0 AND descuento_pct <= 100),  -- porcentaje de descuento aplicado, si hubo
     creada_en       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -143,6 +144,10 @@ ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cliente_id BIGINT REFERENCES clienta
 -- 'menudeo' (todas las ventas anteriores a este cambio se asumen menudeo).
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS tipo_precio TEXT NOT NULL DEFAULT 'menudeo'
     CHECK (tipo_precio IN ('menudeo', 'mayoreo'));
+
+-- Porcentaje de descuento aplicado en la venta (NULL = sin descuento).
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS descuento_pct NUMERIC(5, 2)
+    CHECK (descuento_pct >= 0 AND descuento_pct <= 100);
 
 
 -- ------------------------------------------------------------

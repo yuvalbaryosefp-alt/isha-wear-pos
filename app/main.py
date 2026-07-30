@@ -243,6 +243,7 @@ def registrar_venta(
     tipo_precio: str = Form("menudeo"),
     cantidad: str = Form(...),
     precio: str = Form(""),
+    descuento: str = Form(""),   # opcional: % de descuento sobre el precio ya resuelto
     cliente_id: str = Form(""),  # opcional: puede venir vacío ("Sin clienta")
 ):
     """Registra una venta: descuenta stock y guarda la info financiera."""
@@ -264,6 +265,11 @@ def registrar_venta(
         return RedirectResponse("/?error=Tipo de precio inválido.", status_code=303)
 
     precio_indicado = parsear_dinero(precio)
+
+    # El descuento es un % opcional entre 0 y 100.
+    descuento_pct = parsear_dinero(descuento)
+    if descuento_pct is not None and not (0 <= descuento_pct <= 100):
+        return RedirectResponse("/?error=El descuento debe ser un % entre 0 y 100.", status_code=303)
 
     # Convierte el select de clienta a número o None ("Sin clienta" llega vacío).
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
@@ -287,6 +293,10 @@ def registrar_venta(
                 f"/?error=Falta el precio de {tipo_precio} (el producto no tiene ese precio de lista).",
                 status_code=303,
             )
+
+        # El descuento se aplica al final, sobre el precio ya resuelto (de lista o manual).
+        if descuento_pct:
+            precio_unitario = round(float(precio_unitario) * (1 - descuento_pct / 100), 2)
 
         costo_unitario = producto["costo"]  # puede ser None si no se capturó
 
@@ -317,12 +327,13 @@ def registrar_venta(
         # 3) Guarda el registro financiero (cliente_id puede ser None).
         conn.execute(text(
             "INSERT INTO ventas "
-            "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, costo_unitario, cliente_id) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente)"
+            "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
+            " costo_unitario, cliente_id, descuento_pct) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento)"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
-            "cliente": cliente_id_num,
+            "cliente": cliente_id_num, "descuento": descuento_pct,
         })
 
     return RedirectResponse("/", status_code=303)
@@ -451,7 +462,7 @@ def historial_producto(request: Request, producto_id: int):
 
         ventas_rows = conn.execute(text(
             "SELECT v.creada_en, v.cantidad, v.precio_unitario, v.costo_unitario, "
-            "       v.canal, v.tipo_precio, s.nombre AS sucursal, c.nombre AS clienta "
+            "       v.canal, v.tipo_precio, v.descuento_pct, s.nombre AS sucursal, c.nombre AS clienta "
             "FROM ventas v "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
@@ -582,7 +593,7 @@ def ver_clienta(request: Request, cliente_id: int):
 
         compras_rows = conn.execute(text(
             "SELECT v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
-            "       v.canal, v.tipo_precio "
+            "       v.canal, v.tipo_precio, v.descuento_pct "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "

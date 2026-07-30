@@ -24,6 +24,7 @@
           <th>Sucursal</th>
           <th>Canal</th>
           <th>Tipo</th>
+          <th>Descuento</th>
         </tr>
       </thead>
       <tbody>
@@ -36,6 +37,7 @@
             <td>{{ c.sucursal }}</td>
             <td>{{ "Boutique" if c.canal == "boutique" else "E-commerce" }}</td>
             <td>{{ "Menudeo" if c.tipo_precio == "menudeo" else "Mayoreo" }}</td>
+            <td class="num">{{ "%.1f"|format(c.descuento_pct) + "%" if c.descuento_pct else "—" }}</td>
           </tr>
         {% endfor %}
       </tbody>
