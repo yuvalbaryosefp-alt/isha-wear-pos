@@ -100,6 +100,32 @@
     </form>
   </div>
 
+  <script>
+    // Recalcula el precio en vivo mientras se escribe el costo o el % de utilidad,
+    // sin necesidad de guardar el formulario. Fórmula: precio = costo × (1 + %/100).
+    (function () {
+      function conectar(idCosto, idUtilidad, idPrecio) {
+        var costoEl = document.getElementById(idCosto);
+        var utilidadEl = document.getElementById(idUtilidad);
+        var precioEl = document.getElementById(idPrecio);
+
+        function recalcular() {
+          var costo = parseFloat(costoEl.value);
+          var utilidad = parseFloat(utilidadEl.value);
+          if (!isNaN(costo) && !isNaN(utilidad)) {
+            precioEl.value = (costo * (1 + utilidad / 100)).toFixed(2);
+          }
+        }
+
+        costoEl.addEventListener('input', recalcular);
+        utilidadEl.addEventListener('input', recalcular);
+      }
+
+      conectar('costo', 'utilidad_menudeo', 'precio');
+      conectar('costo', 'utilidad_mayoreo', 'precio_mayoreo');
+    })();
+  </script>
+
   {# ---------- Formulario para registrar una venta ---------- #}
   {% if filas %}
     <h2>Registrar venta</h2>
