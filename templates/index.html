@@ -48,6 +48,16 @@
       </div>
       <div class="fila-form">
         <div>
+          <label for="precio">Precio menudeo (opcional)</label>
+          <input type="text" id="precio" name="precio" placeholder="Ej. 2500">
+        </div>
+        <div>
+          <label for="precio_mayoreo">Precio mayoreo (opcional)</label>
+          <input type="text" id="precio_mayoreo" name="precio_mayoreo" placeholder="Ej. 1600">
+        </div>
+      </div>
+      <div class="fila-form">
+        <div>
           <label for="sucursal_inicial">¿Dónde llegó? (opcional)</label>
           <select id="sucursal_inicial" name="sucursal_inicial">
             <option value="">— No registrar entrada todavía —</option>
@@ -70,7 +80,7 @@
       <p style="font-size:12px; color:#777; margin:10px 0 0">
         Si indicas sucursal y cantidad, el producto nace con ese stock listo para vender.
         Si lo dejas vacío, nace en 0 y luego usas <strong>Registrar movimiento</strong> para sumarle stock.
-        El <strong>precio de venta</strong> se pone después, con el botón <strong>Editar</strong>.
+        Si dejas los precios vacíos, los puedes completar o ajustar después con el botón <strong>Editar</strong>.
       </p>
       <button type="submit">Guardar producto</button>
     </form>

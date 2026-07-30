@@ -334,6 +334,8 @@ def crear_producto(
     titulo: str = Form(...),
     categoria: str = Form(""),
     costo: str = Form(""),
+    precio: str = Form(""),           # opcional: precio de venta menudeo
+    precio_mayoreo: str = Form(""),   # opcional: precio de venta mayoreo
     sucursal_inicial: str = Form(""),   # opcional: dónde llegó la mercancía
     cantidad_inicial: str = Form(""),   # opcional: cuántas piezas llegaron
     foto: UploadFile | None = File(None),  # opcional: foto de la prenda
@@ -342,15 +344,18 @@ def crear_producto(
 
     Si se indica sucursal + cantidad inicial, además registra esa entrada de una
     vez (mismo efecto que ir después a "Registrar movimiento" → Entrada).
-    El precio de venta NO se pide aquí: se define después con el botón Editar.
+    Los precios (menudeo/mayoreo) son opcionales aquí: se pueden dejar vacíos y
+    completar/ajustar después con el botón Editar.
     """
     # Limpia los textos (quita espacios sobrantes).
     sku = sku.strip()
     titulo = titulo.strip()
     categoria = categoria.strip() or None
 
-    # Convierte el costo a número (None si viene vacío o mal escrito).
+    # Convierte costo y precios a número (None si vienen vacíos o mal escritos).
     costo_valor = parsear_dinero(costo)
+    precio_valor = parsear_dinero(precio)
+    precio_mayoreo_valor = parsear_dinero(precio_mayoreo)
 
     # La cantidad inicial es opcional: si viene vacía o es 0, no se registra entrada.
     try:
@@ -368,11 +373,14 @@ def crear_producto(
         # Todo dentro de una transacción: o se guarda todo, o nada.
         with engine.begin() as conn:
             nuevo_id = conn.execute(text(
-                "INSERT INTO productos (sku, titulo, categoria, costo, foto, foto_tipo) "
-                "VALUES (:sku, :titulo, :categoria, :costo, :foto, :foto_tipo) RETURNING id"
+                "INSERT INTO productos "
+                "(sku, titulo, categoria, costo, precio, precio_mayoreo, foto, foto_tipo) "
+                "VALUES (:sku, :titulo, :categoria, :costo, :precio, :precio_mayoreo, :foto, :foto_tipo) "
+                "RETURNING id"
             ), {
                 "sku": sku, "titulo": titulo,
                 "categoria": categoria, "costo": costo_valor,
+                "precio": precio_valor, "precio_mayoreo": precio_mayoreo_valor,
                 "foto": foto_bytes, "foto_tipo": foto_tipo,
             }).scalar_one()
 
