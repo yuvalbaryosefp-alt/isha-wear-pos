@@ -80,6 +80,13 @@ def parsear_dinero(texto: str) -> float | None:
         return None
 
 
+def calcular_precio_desde_utilidad(costo, utilidad_pct) -> float | None:
+    """precio = costo × (1 + utilidad_pct/100). None si falta costo o utilidad."""
+    if costo is None or utilidad_pct is None:
+        return None
+    return round(float(costo) * (1 + utilidad_pct / 100), 2)
+
+
 def calcular_margen(precio, costo) -> float | None:
     """Margen % = (precio - costo) / precio × 100. None si falta un dato o precio es 0."""
     if not precio or costo is None:
@@ -347,6 +354,8 @@ def crear_producto(
     costo: str = Form(""),
     precio: str = Form(""),           # opcional: precio de venta menudeo
     precio_mayoreo: str = Form(""),   # opcional: precio de venta mayoreo
+    utilidad_menudeo: str = Form(""),  # opcional: % utilidad -> calcula precio menudeo
+    utilidad_mayoreo: str = Form(""),  # opcional: % utilidad -> calcula precio mayoreo
     sucursal_inicial: str = Form(""),   # opcional: dónde llegó la mercancía
     cantidad_inicial: str = Form(""),   # opcional: cuántas piezas llegaron
     foto: UploadFile | None = File(None),  # opcional: foto de la prenda
@@ -356,7 +365,9 @@ def crear_producto(
     Si se indica sucursal + cantidad inicial, además registra esa entrada de una
     vez (mismo efecto que ir después a "Registrar movimiento" → Entrada).
     Los precios (menudeo/mayoreo) son opcionales aquí: se pueden dejar vacíos y
-    completar/ajustar después con el botón Editar.
+    completar/ajustar después con el botón Editar. En vez de un precio exacto,
+    también se puede indicar un % de utilidad sobre el costo (precio = costo ×
+    (1 + %/100)); si se da el %, tiene prioridad sobre el precio escrito a mano.
     """
     # Limpia los textos (quita espacios sobrantes).
     sku = sku.strip()
@@ -367,6 +378,22 @@ def crear_producto(
     costo_valor = parsear_dinero(costo)
     precio_valor = parsear_dinero(precio)
     precio_mayoreo_valor = parsear_dinero(precio_mayoreo)
+
+    # Si se dio un % de utilidad, calcula el precio a partir del costo (tiene
+    # prioridad sobre el precio manual de arriba, si también se escribió uno).
+    utilidad_menudeo_pct = parsear_dinero(utilidad_menudeo)
+    utilidad_mayoreo_pct = parsear_dinero(utilidad_mayoreo)
+
+    if utilidad_menudeo_pct is not None or utilidad_mayoreo_pct is not None:
+        if costo_valor is None:
+            return RedirectResponse(
+                "/?error=Para usar % de utilidad necesitas indicar el costo de compra.",
+                status_code=303,
+            )
+        if utilidad_menudeo_pct is not None:
+            precio_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_menudeo_pct)
+        if utilidad_mayoreo_pct is not None:
+            precio_mayoreo_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_mayoreo_pct)
 
     # La cantidad inicial es opcional: si viene vacía o es 0, no se registra entrada.
     try:
@@ -644,14 +671,38 @@ def editar_producto(
     categoria: str = Form(""),
     precio: str = Form(""),
     precio_mayoreo: str = Form(""),
+    utilidad_menudeo: str = Form(""),  # opcional: % utilidad -> recalcula precio menudeo
+    utilidad_mayoreo: str = Form(""),  # opcional: % utilidad -> recalcula precio mayoreo
     costo: str = Form(""),
     foto: UploadFile | None = File(None),
 ):
     """Guarda los cambios del producto (título, categoría, los 2 precios, costo y foto).
 
+    Los precios se pueden escribir a mano, o recalcular a partir de un % de
+    utilidad sobre el costo (precio = costo × (1 + %/100)); si se da el %,
+    tiene prioridad sobre el precio escrito a mano en el mismo envío.
+
     La foto solo se reemplaza si se elige un archivo nuevo; si no, se conserva
     la que ya tenía (no hace falta volver a subirla en cada edición).
     """
+    costo_valor = parsear_dinero(costo)
+    precio_valor = parsear_dinero(precio)
+    precio_mayoreo_valor = parsear_dinero(precio_mayoreo)
+
+    utilidad_menudeo_pct = parsear_dinero(utilidad_menudeo)
+    utilidad_mayoreo_pct = parsear_dinero(utilidad_mayoreo)
+
+    if utilidad_menudeo_pct is not None or utilidad_mayoreo_pct is not None:
+        if costo_valor is None:
+            return RedirectResponse(
+                "/?error=Para usar % de utilidad necesitas indicar el costo de compra.",
+                status_code=303,
+            )
+        if utilidad_menudeo_pct is not None:
+            precio_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_menudeo_pct)
+        if utilidad_mayoreo_pct is not None:
+            precio_mayoreo_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_mayoreo_pct)
+
     campos_sql = (
         "titulo = :titulo, categoria = :categoria, "
         "precio = :precio, precio_mayoreo = :precio_mayoreo, "
@@ -660,9 +711,9 @@ def editar_producto(
     parametros = {
         "titulo": titulo.strip(),
         "categoria": categoria.strip() or None,
-        "precio": parsear_dinero(precio),
-        "precio_mayoreo": parsear_dinero(precio_mayoreo),
-        "costo": parsear_dinero(costo),
+        "precio": precio_valor,
+        "precio_mayoreo": precio_mayoreo_valor,
+        "costo": costo_valor,
         "id": producto_id,
     }
 
