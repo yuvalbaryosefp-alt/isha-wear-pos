@@ -496,6 +496,46 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
     return RedirectResponse("/ventas", status_code=303)
 
 
+@app.post("/ventas/{venta_id}/eliminar")
+def eliminar_venta(venta_id: int):
+    """Elimina una venta (ej. una de prueba) y repone el stock que se había
+    descontado, para que el inventario no quede descuadrado.
+
+    No se intenta borrar el movimiento 'venta' original (la tabla movimientos
+    no guarda a qué venta pertenece cada renglón, así que no hay forma
+    confiable de identificar cuál es exactamente). En su lugar se registra un
+    movimiento nuevo tipo 'ajuste' que repone la cantidad, dejando rastro
+    claro en el historial de que la venta se canceló.
+    """
+    with engine.begin() as conn:
+        venta = conn.execute(text(
+            "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
+        ), {"id": venta_id}).mappings().one_or_none()
+
+        if venta is None:
+            return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
+
+        # Repone el stock que se había descontado al vender.
+        conn.execute(text(
+            "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
+            "WHERE producto_id = :p AND sucursal_id = :s"
+        ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
+
+        # Deja rastro de la cancelación en el historial de movimientos.
+        conn.execute(text(
+            "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+            "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
+        ), {
+            "p": venta["producto_id"], "s": venta["sucursal_id"],
+            "delta": venta["cantidad"], "motivo": f"venta #{venta_id} eliminada (stock repuesto)",
+        })
+
+        # Borra la venta; sus pagos se eliminan solos (ON DELETE CASCADE).
+        conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
+
+    return RedirectResponse("/ventas", status_code=303)
+
+
 @app.get("/ventas/nota")
 def nota_pedido(request: Request, id: list[int] = Query(default=[])):
     """Genera una nota de pedido imprimible con varias ventas juntas (ej. las
