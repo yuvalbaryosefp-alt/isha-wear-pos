@@ -21,13 +21,25 @@
       font-size: 11px; color: #444; text-align: center; line-height: 1.5;
     }
     .datos p { margin: 3px 0; font-size: 13px; }
-    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-    th, td { padding: 7px 4px; font-size: 13px; text-align: left; border-bottom: 1px solid #E2E2E2; }
-    th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .totales { margin-top: 6px; }
-    .totales td { border: none; padding: 3px 4px; font-size: 13px; }
+
+    /* Lista de prendas: cada una en su propio bloque (título arriba,
+       cantidad/precio/subtotal abajo) en vez de una tabla de 4 columnas
+       rígida. Así nunca se cortan los números aunque el nombre de la
+       prenda sea largo — se ajusta a cualquier ancho de papel. */
+    .items { margin: 14px 0; }
+    .item { padding: 7px 0; border-bottom: 1px solid #E2E2E2; }
+    .item-titulo { font-size: 13px; }
+    .item-sku { font-size: 11px; color: #999; }
+    .item-detalle {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: 13px; margin-top: 2px; font-variant-numeric: tabular-nums;
+    }
+    .item-subtotal { font-weight: 600; }
+
+    .totales { width: 100%; margin-top: 10px; }
+    .totales td { border: none; padding: 3px 0; font-size: 13px; }
     .totales .label { text-align: right; font-weight: 600; }
-    .totales .valor { text-align: right; width: 100px; font-variant-numeric: tabular-nums; }
+    .totales .valor { text-align: right; font-variant-numeric: tabular-nums; }
     .totales .grande td { font-size: 16px; font-weight: 700; }
     button.imprimir {
       margin-top: 22px;
@@ -55,11 +67,16 @@
         padding: 3mm;
         font-size: 11px;
       }
-      .logo { width: 55mm; margin-bottom: 6px; }
+      .logo { width: 28mm; margin-bottom: 6px; }
       .direccion { font-size: 10px; margin-bottom: 10px; }
       .datos p { font-size: 11px; }
-      table { margin: 8px 0; }
-      th, td { padding: 3px 2px; font-size: 11px; }
+      .items { margin: 8px 0; }
+      .item { padding: 5px 0; }
+      .item-titulo { font-size: 11px; }
+      .item-sku { font-size: 9px; }
+      .item-detalle { font-size: 11px; }
+      .totales { margin-top: 6px; }
+      .totales td { font-size: 11px; }
       .totales .grande td { font-size: 13px; }
       .politica { font-size: 10px; margin-top: 12px; padding-top: 8px; }
     }
@@ -80,26 +97,17 @@
     {% endif %}
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Prenda</th>
-        <th class="num">Cant.</th>
-        <th class="num">Precio</th>
-        <th class="num">Subtotal</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in items %}
-        <tr>
-          <td>{{ it.titulo }}<br><span style="font-size:11px; color:#999">{{ it.sku }}</span></td>
-          <td class="num">{{ it.cantidad }}</td>
-          <td class="num">${{ "%.2f"|format(it.precio_unitario) }}</td>
-          <td class="num">${{ "%.2f"|format(it.subtotal) }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="items">
+    {% for it in items %}
+      <div class="item">
+        <div class="item-titulo">{{ it.titulo }} <span class="item-sku">({{ it.sku }})</span></div>
+        <div class="item-detalle">
+          <span>{{ it.cantidad }} × ${{ "%.2f"|format(it.precio_unitario) }}</span>
+          <span class="item-subtotal">${{ "%.2f"|format(it.subtotal) }}</span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
 
   <table class="totales">
     <tr class="grande">
