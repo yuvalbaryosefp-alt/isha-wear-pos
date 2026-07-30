@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from PIL import Image
 from sqlalchemy import bindparam, text
@@ -65,6 +66,11 @@ app = FastAPI(title="Inventario Isha Boutique", dependencies=[Depends(requiere_l
 # Carpeta donde viven las plantillas HTML (se calcula relativa a este archivo).
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+# Archivos estáticos (ej. el logo de la boutique). Nota: los archivos montados
+# así NO pasan por requiere_login (son públicos) — aceptable porque son solo
+# recursos de marca (logo), no datos del negocio.
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 # Postgres guarda las fechas en UTC. La convertimos a hora de Ciudad de México
 # solo para MOSTRARLA (en la base siempre se queda en UTC, que es lo correcto).
