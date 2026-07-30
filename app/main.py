@@ -142,10 +142,6 @@ def pagina_principal(request: Request, error: str | None = None):
             "FROM productos WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
 
-        clientas = conn.execute(text(
-            "SELECT id, nombre FROM clientas ORDER BY nombre"
-        )).mappings().all()
-
         stock_rows = conn.execute(text(
             "SELECT producto_id, sucursal_id, cantidad FROM stock"
         )).all()
@@ -192,7 +188,6 @@ def pagina_principal(request: Request, error: str | None = None):
         {
             "sucursales": sucursales,
             "productos": productos,
-            "clientas": clientas,
             "filas": filas,
             "movimientos": movimientos,
             "error": error,
@@ -276,28 +271,28 @@ def registrar_venta(
     metodo_pago = metodo_pago.strip()
 
     if metodo_pago not in ("efectivo", "tarjeta", "transferencia"):
-        return RedirectResponse("/?error=Método de pago inválido.", status_code=303)
+        return RedirectResponse("/ventas?error=Método de pago inválido.", status_code=303)
 
     # La cantidad debe ser un entero mayor a 0.
     try:
         cantidad_num = int(cantidad.strip())
     except ValueError:
-        return RedirectResponse("/?error=La cantidad debe ser un número entero.", status_code=303)
+        return RedirectResponse("/ventas?error=La cantidad debe ser un número entero.", status_code=303)
     if cantidad_num <= 0:
-        return RedirectResponse("/?error=La cantidad debe ser mayor a 0.", status_code=303)
+        return RedirectResponse("/ventas?error=La cantidad debe ser mayor a 0.", status_code=303)
 
     if canal not in ("boutique", "ecommerce"):
-        return RedirectResponse("/?error=Canal de venta inválido.", status_code=303)
+        return RedirectResponse("/ventas?error=Canal de venta inválido.", status_code=303)
 
     if tipo_precio not in ("menudeo", "mayoreo"):
-        return RedirectResponse("/?error=Tipo de precio inválido.", status_code=303)
+        return RedirectResponse("/ventas?error=Tipo de precio inválido.", status_code=303)
 
     precio_indicado = parsear_dinero(precio)
 
     # El descuento es un % opcional entre 0 y 100.
     descuento_pct = parsear_dinero(descuento)
     if descuento_pct is not None and not (0 <= descuento_pct <= 100):
-        return RedirectResponse("/?error=El descuento debe ser un % entre 0 y 100.", status_code=303)
+        return RedirectResponse("/ventas?error=El descuento debe ser un % entre 0 y 100.", status_code=303)
 
     # Convierte el select de clienta a número o None ("Sin clienta" llega vacío).
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
@@ -309,12 +304,12 @@ def registrar_venta(
         ), {"p": producto_id}).mappings().one_or_none()
 
         if producto is None:
-            return RedirectResponse("/?error=Producto no encontrado.", status_code=303)
+            return RedirectResponse("/ventas?error=Producto no encontrado.", status_code=303)
 
         precio_unitario = resolver_precio_venta(producto, tipo_precio, precio_indicado, descuento_pct)
         if precio_unitario is None:
             return RedirectResponse(
-                f"/?error=Falta el precio de {tipo_precio} (el producto no tiene ese precio de lista).",
+                f"/ventas?error=Falta el precio de {tipo_precio} (el producto no tiene ese precio de lista).",
                 status_code=303,
             )
 
@@ -330,7 +325,7 @@ def registrar_venta(
 
         if monto_pagado_num < 0 or monto_pagado_num > total_venta:
             return RedirectResponse(
-                f"/?error=El monto pagado debe estar entre 0 y el total (${total_venta:.2f}).",
+                f"/ventas?error=El monto pagado debe estar entre 0 y el total (${total_venta:.2f}).",
                 status_code=303,
             )
 
@@ -342,7 +337,7 @@ def registrar_venta(
 
         if actual < cantidad_num:
             return RedirectResponse(
-                f"/?error=No hay suficiente stock (hay {actual}, intentas vender {cantidad_num}).",
+                f"/ventas?error=No hay suficiente stock (hay {actual}, intentas vender {cantidad_num}).",
                 status_code=303,
             )
 
@@ -378,13 +373,26 @@ def registrar_venta(
                 "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
             ), {"v": venta_id, "metodo": metodo_pago, "monto": monto_pagado_num})
 
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/ventas", status_code=303)
 
 
 @app.get("/ventas")
 def ver_ventas(request: Request, error: str | None = None):
-    """Punto de venta: lista las ventas con su estado de pago (pagado/parcial/pendiente)."""
+    """Punto de venta: registrar una venta y ver el estado de pago de todas."""
     with engine.connect() as conn:
+        productos = conn.execute(text(
+            "SELECT id, sku, titulo, precio, precio_mayoreo FROM productos "
+            "WHERE activo = TRUE ORDER BY titulo"
+        )).mappings().all()
+
+        sucursales = conn.execute(text(
+            "SELECT id, nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
+        )).mappings().all()
+
+        clientas = conn.execute(text(
+            "SELECT id, nombre FROM clientas ORDER BY nombre"
+        )).mappings().all()
+
         ventas_rows = conn.execute(text(
             "SELECT v.id, v.creada_en, p.titulo, s.nombre AS sucursal, v.canal, "
             "       v.tipo_precio, c.nombre AS clienta, v.cantidad, v.precio_unitario, "
@@ -438,7 +446,10 @@ def ver_ventas(request: Request, error: str | None = None):
             "metodos": metodos,
         })
 
-    return templates.TemplateResponse(request, "ventas.html", {"ventas": ventas, "error": error})
+    return templates.TemplateResponse(request, "ventas.html", {
+        "ventas": ventas, "error": error,
+        "productos": productos, "sucursales": sucursales, "clientas": clientas,
+    })
 
 
 @app.post("/ventas/{venta_id}/pagos")
