@@ -30,9 +30,32 @@
       padding: 11px 22px; border-radius: 7px;
       font-size: 14px; font-weight: 600; cursor: pointer;
     }
+
+    /* ---- Impresora térmica de tickets (rollo continuo) ----
+       "size: 80mm auto" le dice al navegador: usa 80mm de ANCHO y deja el
+       LARGO en automático según el contenido — así corta justo donde
+       termina la nota, sin dejar papel sobrante.
+       Si tu impresora es de rollo angosto (58mm en vez de 80mm), cambia
+       el "80mm" de las dos líneas marcadas más abajo por "58mm". */
+    @page {
+      size: 80mm auto;   /* <- cambiar aquí si tu rollo es de 58mm */
+      margin: 0;
+    }
     @media print {
       button.imprimir { display: none; }
-      body { margin: 0; max-width: 100%; }
+      body {
+        width: 80mm;       /* <- cambiar aquí si tu rollo es de 58mm */
+        max-width: 80mm;
+        margin: 0;
+        padding: 3mm;
+        font-size: 11px;
+      }
+      h1 { font-size: 15px; }
+      .direccion { font-size: 10px; margin-bottom: 10px; }
+      .datos p { font-size: 11px; }
+      table { margin: 8px 0; }
+      th, td { padding: 3px 2px; font-size: 11px; }
+      .totales .grande td { font-size: 13px; }
     }
   </style>
 </head>
