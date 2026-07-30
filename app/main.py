@@ -12,7 +12,7 @@ Luego abrir en el navegador:  http://127.0.0.1:8000
 import io
 import os
 import secrets
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -29,6 +29,9 @@ from app.db import engine
 # Ancho máximo de una foto guardada (en píxeles). Suficiente para identificar
 # la prenda en pantalla; evita que fotos de celular (varios MB) inflen la base.
 FOTO_ANCHO_MAX = 1000
+
+# Días sin comprar a partir de los cuales una clienta se marca como "no ha vuelto".
+DIAS_SIN_COMPRAR_ALERTA = 60
 
 # ---------------------------------------------------------------------------
 # Protección con usuario y contraseña (HTTP Basic Auth).
@@ -408,6 +411,49 @@ def foto_producto(producto_id: int):
     return Response(content=bytes(fila["foto"]), media_type=fila["foto_tipo"] or "image/jpeg")
 
 
+@app.get("/productos/{producto_id}/historial")
+def historial_producto(request: Request, producto_id: int):
+    """Ficha de un producto: sus datos y todo su historial de movimientos y ventas."""
+    with engine.connect() as conn:
+        producto = conn.execute(text(
+            "SELECT id, sku, titulo, categoria, precio, costo, "
+            "       (foto IS NOT NULL) AS tiene_foto "
+            "FROM productos WHERE id = :id"
+        ), {"id": producto_id}).mappings().one_or_none()
+
+        if producto is None:
+            return RedirectResponse("/?error=Producto no encontrado.", status_code=303)
+
+        movimientos_rows = conn.execute(text(
+            "SELECT m.creado_en, s.nombre AS sucursal, m.tipo, m.delta, m.motivo "
+            "FROM movimientos m JOIN sucursales s ON s.id = m.sucursal_id "
+            "WHERE m.producto_id = :id ORDER BY m.creado_en DESC"
+        ), {"id": producto_id}).mappings().all()
+
+        ventas_rows = conn.execute(text(
+            "SELECT v.creada_en, v.cantidad, v.precio_unitario, v.costo_unitario, "
+            "       v.canal, s.nombre AS sucursal, c.nombre AS clienta "
+            "FROM ventas v "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
+            "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "WHERE v.producto_id = :id ORDER BY v.creada_en DESC"
+        ), {"id": producto_id}).mappings().all()
+
+    # Convierte fechas a hora de CDMX, solo para mostrar.
+    movimientos = [
+        {**dict(m), "creado_en": m["creado_en"].astimezone(ZONA_CDMX)}
+        for m in movimientos_rows
+    ]
+    ventas = [
+        {**dict(v), "creada_en": v["creada_en"].astimezone(ZONA_CDMX)}
+        for v in ventas_rows
+    ]
+
+    return templates.TemplateResponse(request, "producto_historial.html", {
+        "producto": producto, "movimientos": movimientos, "ventas": ventas,
+    })
+
+
 @app.post("/productos/{producto_id}/eliminar")
 def eliminar_producto(producto_id: int):
     """'Elimina' un producto SIN borrarlo de la base: lo marca inactivo.
@@ -447,15 +493,38 @@ def ver_clientas(request: Request, error: str | None = None):
             "ORDER BY c.nombre"
         )).mappings().all()
 
-    # Convierte la fecha de última compra a hora de CDMX (si existe).
+    # Convierte la fecha de última compra a hora de CDMX y calcula días sin comprar.
+    ahora = datetime.now(ZONA_CDMX)
     clientas = []
     for f in filas:
         d = dict(f)
         if d["ultima_compra"] is not None:
             d["ultima_compra"] = d["ultima_compra"].astimezone(ZONA_CDMX)
+            d["dias_sin_comprar"] = (ahora - d["ultima_compra"]).days
+        else:
+            d["dias_sin_comprar"] = None
         clientas.append(d)
 
-    return templates.TemplateResponse(request, "clientas.html", {"clientas": clientas, "error": error})
+    # Alertas: clientas que SÍ han comprado antes pero llevan muchos días sin volver.
+    no_han_vuelto = sorted(
+        [c for c in clientas if c["dias_sin_comprar"] is not None
+         and c["dias_sin_comprar"] >= DIAS_SIN_COMPRAR_ALERTA],
+        key=lambda c: c["dias_sin_comprar"], reverse=True,
+    )
+
+    # Top clientas por lo que han gastado en total (solo las que sí han comprado algo).
+    top_clientas = sorted(
+        [c for c in clientas if c["total_comprado"] > 0],
+        key=lambda c: c["total_comprado"], reverse=True,
+    )[:5]
+
+    return templates.TemplateResponse(request, "clientas.html", {
+        "clientas": clientas,
+        "no_han_vuelto": no_han_vuelto,
+        "top_clientas": top_clientas,
+        "dias_alerta": DIAS_SIN_COMPRAR_ALERTA,
+        "error": error,
+    })
 
 
 @app.post("/clientas")

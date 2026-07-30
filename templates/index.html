@@ -225,6 +225,8 @@
               <td class="num">{{ cantidad }}</td>
             {% endfor %}
             <td>
+              <a href="/productos/{{ f.id }}/historial">Historial</a>
+              &nbsp;·&nbsp;
               <a href="/productos/{{ f.id }}/editar">Editar</a>
               &nbsp;·&nbsp;
               <form method="post" action="/productos/{{ f.id }}/eliminar" style="display:inline"

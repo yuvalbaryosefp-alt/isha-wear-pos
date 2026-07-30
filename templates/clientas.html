@@ -40,6 +40,60 @@
     </form>
   </div>
 
+  {# ---------- Alerta: clientas que no han vuelto ---------- #}
+  <h2>Clientas que no han vuelto ({{ dias_alerta }}+ días)</h2>
+  {% if no_han_vuelto %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Teléfono</th>
+          <th>Última compra</th>
+          <th>Días sin comprar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in no_han_vuelto %}
+          <tr>
+            <td><a href="/clientas/{{ c.id }}">{{ c.nombre }}</a></td>
+            <td>{{ c.telefono or "—" }}</td>
+            <td>{{ c.ultima_compra.strftime("%d/%m/%Y") }}</td>
+            <td class="num" style="color:#B02A2A">{{ c.dias_sin_comprar }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Ninguna clienta con compras lleva {{ dias_alerta }} días o más sin volver. 👍</div>
+  {% endif %}
+
+  {# ---------- Top clientas por gasto total ---------- #}
+  <h2>Top clientas</h2>
+  {% if top_clientas %}
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Nombre</th>
+          <th>Compras</th>
+          <th>Total gastado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in top_clientas %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><a href="/clientas/{{ c.id }}">{{ c.nombre }}</a></td>
+            <td class="num">{{ c.num_compras }}</td>
+            <td class="num">${{ "%.2f"|format(c.total_comprado) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Todavía no hay compras ligadas a clientas.</div>
+  {% endif %}
+
   {# ---------- Lista de clientas con recurrencia ---------- #}
   <h2>Clientas</h2>
   {% if clientas %}
