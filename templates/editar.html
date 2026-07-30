@@ -30,10 +30,16 @@
       </div>
       <div class="fila-form">
         <div>
-          <label for="precio">Precio de venta (MXN)</label>
+          <label for="precio">Precio menudeo (MXN)</label>
           <input type="text" id="precio" name="precio"
                  value="{{ '%.2f'|format(producto.precio) if producto.precio is not none else '' }}"
                  placeholder="Ej. 2500">
+        </div>
+        <div>
+          <label for="precio_mayoreo">Precio mayoreo (MXN)</label>
+          <input type="text" id="precio_mayoreo" name="precio_mayoreo"
+                 value="{{ '%.2f'|format(producto.precio_mayoreo) if producto.precio_mayoreo is not none else '' }}"
+                 placeholder="Ej. 1800">
         </div>
         <div>
           <label for="costo">Costo de compra (MXN)</label>

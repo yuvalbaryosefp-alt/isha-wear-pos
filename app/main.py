@@ -80,6 +80,13 @@ def parsear_dinero(texto: str) -> float | None:
         return None
 
 
+def calcular_margen(precio, costo) -> float | None:
+    """Margen % = (precio - costo) / precio × 100. None si falta un dato o precio es 0."""
+    if not precio or costo is None:
+        return None
+    return float((precio - costo) / precio * 100)
+
+
 def procesar_foto(contenido: bytes) -> tuple[bytes, str]:
     """Redimensiona y comprime una foto antes de guardarla en la base.
 
@@ -108,7 +115,7 @@ def pagina_principal(request: Request, error: str | None = None):
         )).mappings().all()
 
         productos = conn.execute(text(
-            "SELECT id, sku, titulo, categoria, precio, costo, "
+            "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo, "
             "       (foto IS NOT NULL) AS tiene_foto "
             "FROM productos WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
@@ -143,20 +150,16 @@ def pagina_principal(request: Request, error: str | None = None):
     # Arma una fila por producto con la lista de cantidades (una por sucursal).
     filas = []
     for p in productos:
-        # Margen % = (precio - costo) / precio × 100. Solo se puede calcular
-        # si hay precio Y costo, y el precio no es 0 (para no dividir entre 0).
-        margen = None
-        if p["precio"] and p["costo"] is not None:
-            margen = float((p["precio"] - p["costo"]) / p["precio"] * 100)
-
         filas.append({
             "id": p["id"],
             "sku": p["sku"],
             "titulo": p["titulo"],
             "categoria": p["categoria"],
             "precio": p["precio"],
+            "precio_mayoreo": p["precio_mayoreo"],
             "costo": p["costo"],
-            "margen": margen,
+            "margen": calcular_margen(p["precio"], p["costo"]),
+            "margen_mayoreo": calcular_margen(p["precio_mayoreo"], p["costo"]),
             "tiene_foto": p["tiene_foto"],
             "cantidades": [stock_map.get((p["id"], s["id"]), 0) for s in sucursales],
         })
@@ -237,12 +240,14 @@ def registrar_venta(
     producto_id: int = Form(...),
     sucursal_id: int = Form(...),
     canal: str = Form(...),
+    tipo_precio: str = Form("menudeo"),
     cantidad: str = Form(...),
     precio: str = Form(""),
     cliente_id: str = Form(""),  # opcional: puede venir vacío ("Sin clienta")
 ):
     """Registra una venta: descuenta stock y guarda la info financiera."""
     canal = canal.strip()
+    tipo_precio = tipo_precio.strip()
 
     # La cantidad debe ser un entero mayor a 0.
     try:
@@ -255,25 +260,31 @@ def registrar_venta(
     if canal not in ("boutique", "ecommerce"):
         return RedirectResponse("/?error=Canal de venta inválido.", status_code=303)
 
+    if tipo_precio not in ("menudeo", "mayoreo"):
+        return RedirectResponse("/?error=Tipo de precio inválido.", status_code=303)
+
     precio_indicado = parsear_dinero(precio)
 
     # Convierte el select de clienta a número o None ("Sin clienta" llega vacío).
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
 
     with engine.begin() as conn:
-        # Trae precio de lista y costo del producto.
+        # Trae los 2 precios de lista y el costo del producto.
         producto = conn.execute(text(
-            "SELECT precio, costo FROM productos WHERE id = :p"
+            "SELECT precio, precio_mayoreo, costo FROM productos WHERE id = :p"
         ), {"p": producto_id}).mappings().one_or_none()
 
         if producto is None:
             return RedirectResponse("/?error=Producto no encontrado.", status_code=303)
 
-        # Si no escribieron precio, se usa el precio de lista del producto.
-        precio_unitario = precio_indicado if precio_indicado is not None else producto["precio"]
+        # El precio de lista depende del tipo elegido (menudeo o mayoreo).
+        precio_lista = producto["precio"] if tipo_precio == "menudeo" else producto["precio_mayoreo"]
+
+        # Si no escribieron un precio manual, se usa el precio de lista del tipo elegido.
+        precio_unitario = precio_indicado if precio_indicado is not None else precio_lista
         if precio_unitario is None:
             return RedirectResponse(
-                "/?error=Falta el precio de venta (el producto no tiene precio de lista).",
+                f"/?error=Falta el precio de {tipo_precio} (el producto no tiene ese precio de lista).",
                 status_code=303,
             )
 
@@ -306,10 +317,10 @@ def registrar_venta(
         # 3) Guarda el registro financiero (cliente_id puede ser None).
         conn.execute(text(
             "INSERT INTO ventas "
-            "(producto_id, sucursal_id, canal, cantidad, precio_unitario, costo_unitario, cliente_id) "
-            "VALUES (:p, :s, :canal, :cant, :precio, :costo, :cliente)"
+            "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, costo_unitario, cliente_id) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente)"
         ), {
-            "p": producto_id, "s": sucursal_id, "canal": canal,
+            "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
             "cliente": cliente_id_num,
         })
@@ -416,7 +427,7 @@ def historial_producto(request: Request, producto_id: int):
     """Ficha de un producto: sus datos y todo su historial de movimientos y ventas."""
     with engine.connect() as conn:
         producto = conn.execute(text(
-            "SELECT id, sku, titulo, categoria, precio, costo, "
+            "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo, "
             "       (foto IS NOT NULL) AS tiene_foto "
             "FROM productos WHERE id = :id"
         ), {"id": producto_id}).mappings().one_or_none()
@@ -432,7 +443,7 @@ def historial_producto(request: Request, producto_id: int):
 
         ventas_rows = conn.execute(text(
             "SELECT v.creada_en, v.cantidad, v.precio_unitario, v.costo_unitario, "
-            "       v.canal, s.nombre AS sucursal, c.nombre AS clienta "
+            "       v.canal, v.tipo_precio, s.nombre AS sucursal, c.nombre AS clienta "
             "FROM ventas v "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
@@ -562,7 +573,8 @@ def ver_clienta(request: Request, cliente_id: int):
             return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
 
         compras_rows = conn.execute(text(
-            "SELECT v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, v.canal "
+            "SELECT v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
+            "       v.canal, v.tipo_precio "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
@@ -595,7 +607,7 @@ def editar_producto_form(request: Request, producto_id: int):
     """Muestra la pantalla para editar un producto (poner precio de venta, ajustar costo)."""
     with engine.connect() as conn:
         producto = conn.execute(text(
-            "SELECT id, sku, titulo, categoria, precio, costo, "
+            "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo, "
             "       (foto IS NOT NULL) AS tiene_foto "
             "FROM productos WHERE id = :id"
         ), {"id": producto_id}).mappings().one_or_none()
@@ -612,22 +624,25 @@ def editar_producto(
     titulo: str = Form(...),
     categoria: str = Form(""),
     precio: str = Form(""),
+    precio_mayoreo: str = Form(""),
     costo: str = Form(""),
     foto: UploadFile | None = File(None),
 ):
-    """Guarda los cambios del producto (título, categoría, precio, costo y foto).
+    """Guarda los cambios del producto (título, categoría, los 2 precios, costo y foto).
 
     La foto solo se reemplaza si se elige un archivo nuevo; si no, se conserva
     la que ya tenía (no hace falta volver a subirla en cada edición).
     """
     campos_sql = (
         "titulo = :titulo, categoria = :categoria, "
-        "precio = :precio, costo = :costo, actualizado_en = NOW()"
+        "precio = :precio, precio_mayoreo = :precio_mayoreo, "
+        "costo = :costo, actualizado_en = NOW()"
     )
     parametros = {
         "titulo": titulo.strip(),
         "categoria": categoria.strip() or None,
         "precio": parsear_dinero(precio),
+        "precio_mayoreo": parsear_dinero(precio_mayoreo),
         "costo": parsear_dinero(costo),
         "id": producto_id,
     }

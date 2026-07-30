@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS productos (
     sku                        TEXT NOT NULL UNIQUE,   -- código único de la prenda
     titulo                     TEXT NOT NULL,
     categoria                  TEXT,                   -- Vestidos, Conjuntos, etc.
-    precio                     NUMERIC(10, 2),         -- precio de venta (NUNCA usar float para dinero)
+    precio                     NUMERIC(10, 2),         -- precio de venta MENUDEO (NUNCA usar float para dinero)
+    precio_mayoreo             NUMERIC(10, 2),         -- precio de venta MAYOREO
     costo                      NUMERIC(10, 2),         -- cuánto costó comprar la prenda
     activo                     BOOLEAN NOT NULL DEFAULT TRUE,  -- FALSE = "eliminado" (se conserva su historial)
 
@@ -54,6 +55,9 @@ ALTER TABLE productos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT T
 -- ya redimensionada y comprimida por la app antes de llegar aquí.
 ALTER TABLE productos ADD COLUMN IF NOT EXISTS foto BYTEA;
 ALTER TABLE productos ADD COLUMN IF NOT EXISTS foto_tipo TEXT;  -- ej. 'image/jpeg'
+
+-- Segundo precio de lista (mayoreo), además del precio de menudeo ya existente.
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS precio_mayoreo NUMERIC(10, 2);
 
 
 -- ------------------------------------------------------------
@@ -119,6 +123,10 @@ CREATE TABLE IF NOT EXISTS ventas (
     -- Canal de venta: boutique física o tienda en línea
     canal           TEXT NOT NULL CHECK (canal IN ('boutique', 'ecommerce')),
 
+    -- Con cuál de los 2 precios de lista se vendió (independiente de si el
+    -- precio_unitario final se ajustó a mano, ej. por un descuento).
+    tipo_precio     TEXT NOT NULL DEFAULT 'menudeo' CHECK (tipo_precio IN ('menudeo', 'mayoreo')),
+
     cantidad        INTEGER NOT NULL CHECK (cantidad > 0),
     precio_unitario NUMERIC(10, 2) NOT NULL,   -- a cuánto se vendió cada pieza
     costo_unitario  NUMERIC(10, 2),            -- costo de la prenda al momento de vender (foto)
@@ -130,6 +138,11 @@ CREATE TABLE IF NOT EXISTS ventas (
 -- ON DELETE SET NULL: si se borra una clienta, sus ventas pasadas NO se pierden,
 -- solo quedan "sin clienta asociada".
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cliente_id BIGINT REFERENCES clientas(id) ON DELETE SET NULL;
+
+-- Por si la tabla ventas ya existía sin esta columna, la agregamos con default
+-- 'menudeo' (todas las ventas anteriores a este cambio se asumen menudeo).
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS tipo_precio TEXT NOT NULL DEFAULT 'menudeo'
+    CHECK (tipo_precio IN ('menudeo', 'mayoreo'));
 
 
 -- ------------------------------------------------------------

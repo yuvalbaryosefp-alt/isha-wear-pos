@@ -1,5 +1,13 @@
 {% extends "base.html" %}
 
+{% macro celda_margen(margen) %}
+  {% if margen is not none %}
+    <span style="color: {{ '#1a7a3c' if margen >= 0 else '#B02A2A' }}">{{ "%.1f"|format(margen) }}%</span>
+  {% else %}
+    —
+  {% endif %}
+{% endmacro %}
+
 {% block contenido %}
 
   {# Aviso de error (por ejemplo, SKU repetido) #}
@@ -100,12 +108,21 @@
             </select>
           </div>
           <div>
+            <label for="v_tipo_precio">Tipo de precio</label>
+            <select id="v_tipo_precio" name="tipo_precio" required>
+              <option value="menudeo">Menudeo</option>
+              <option value="mayoreo">Mayoreo</option>
+            </select>
+          </div>
+          <div>
             <label for="v_cantidad">Cantidad</label>
             <input type="number" id="v_cantidad" name="cantidad" min="1" required>
           </div>
+        </div>
+        <div class="fila-form">
           <div>
-            <label for="v_precio">Precio de venta</label>
-            <input type="text" id="v_precio" name="precio" placeholder="Vacío = precio de lista">
+            <label for="v_precio">Precio de venta (opcional)</label>
+            <input type="text" id="v_precio" name="precio" placeholder="Vacío = usa el precio de lista según el tipo elegido">
           </div>
         </div>
         <div class="fila-form">
@@ -186,9 +203,11 @@
           <th>Producto</th>
           <th>SKU</th>
           <th>Categoría</th>
-          <th>Precio</th>
+          <th>Menudeo</th>
+          <th>Mayoreo</th>
           <th>Costo</th>
-          <th>Margen</th>
+          <th>Margen menudeo</th>
+          <th>Margen mayoreo</th>
           {% for s in sucursales %}
             <th>{{ s.nombre }}</th>
           {% endfor %}
@@ -211,16 +230,10 @@
             <td>{{ f.sku }}</td>
             <td>{{ f.categoria or "—" }}</td>
             <td>{{ "$%.2f"|format(f.precio) if f.precio is not none else "— (sin precio)" }}</td>
+            <td>{{ "$%.2f"|format(f.precio_mayoreo) if f.precio_mayoreo is not none else "—" }}</td>
             <td>{{ "$%.2f"|format(f.costo) if f.costo is not none else "—" }}</td>
-            <td class="num">
-              {% if f.margen is not none %}
-                <span style="color: {{ '#1a7a3c' if f.margen >= 0 else '#B02A2A' }}">
-                  {{ "%.1f"|format(f.margen) }}%
-                </span>
-              {% else %}
-                —
-              {% endif %}
-            </td>
+            <td class="num">{{ celda_margen(f.margen) }}</td>
+            <td class="num">{{ celda_margen(f.margen_mayoreo) }}</td>
             {% for cantidad in f.cantidades %}
               <td class="num">{{ cantidad }}</td>
             {% endfor %}
