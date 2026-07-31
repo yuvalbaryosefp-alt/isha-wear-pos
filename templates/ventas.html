@@ -60,15 +60,6 @@
           <input type="number" id="v_descuento" name="descuento" min="0" max="100" step="0.01" placeholder="Ej. 10">
         </div>
       </div>
-      <p style="font-size:12px; color:#777; margin:-6px 0 4px">
-        El precio se rellena solo al elegir producto y tipo (menudeo/mayoreo); puedes ajustarlo a mano si negocias otro.
-        El descuento se aplica sobre ese precio, y el subtotal ya multiplica por la cantidad.
-      </p>
-      <p style="font-size:14px; margin:0 0 10px">
-        Precio unitario con descuento: <strong id="v_precio_final">—</strong>
-        &nbsp;·&nbsp;
-        Subtotal (× cantidad): <strong id="v_subtotal">—</strong>
-      </p>
       <div class="fila-form">
         <div>
           <label for="v_clienta">Clienta (opcional)</label>
@@ -120,20 +111,13 @@
     }
 
     // Al escribir/escanear el SKU, resuelve el producto y rellena el precio de
-    // venta según menudeo/mayoreo. Al escribir descuento o cantidad, muestra
-    // en vivo el precio unitario final y el subtotal (× cantidad) — esto NO
-    // se guarda en el campo de precio: el servidor aplica el descuento por
-    // separado, para no duplicarlo.
+    // venta según menudeo/mayoreo.
     (function () {
       var skuEl = document.getElementById('v_sku');
       var idEl = document.getElementById('v_producto');
       var errorEl = document.getElementById('v_sku_error');
       var tipoEl = document.getElementById('v_tipo_precio');
       var precioEl = document.getElementById('v_precio');
-      var cantidadEl = document.getElementById('v_cantidad');
-      var descuentoEl = document.getElementById('v_descuento');
-      var finalEl = document.getElementById('v_precio_final');
-      var subtotalEl = document.getElementById('v_subtotal');
       var fotoEl = document.getElementById('v_foto');
 
       function resolverSku() {
@@ -159,29 +143,11 @@
           errorEl.textContent = 'SKU no encontrado.';
           fotoEl.style.display = 'none';
         }
-        actualizarFinal();
-      }
-
-      function actualizarFinal() {
-        var precio = parseFloat(precioEl.value);
-        var cantidad = parseInt(cantidadEl.value, 10);
-        var descuento = parseFloat(descuentoEl.value);
-        if (isNaN(precio)) {
-          finalEl.textContent = '—';
-          subtotalEl.textContent = '—';
-          return;
-        }
-        var final = isNaN(descuento) ? precio : precio * (1 - descuento / 100);
-        finalEl.textContent = '$' + final.toFixed(2);
-        subtotalEl.textContent = isNaN(cantidad) ? '—' : '$' + (final * cantidad).toFixed(2);
       }
 
       skuEl.addEventListener('input', resolverSku);
       skuEl.addEventListener('change', resolverSku);
       tipoEl.addEventListener('change', resolverSku);
-      precioEl.addEventListener('input', actualizarFinal);
-      cantidadEl.addEventListener('input', actualizarFinal);
-      descuentoEl.addEventListener('input', actualizarFinal);
     })();
 
     // No dejar enviar el formulario si el SKU no corresponde a un producto real.
