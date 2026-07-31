@@ -130,15 +130,13 @@
   {% if filas %}
     <h2>Registrar movimiento (entrada / ajuste)</h2>
     <div class="tarjeta">
-      <form method="post" action="/movimientos">
+      <form method="post" action="/movimientos" id="form-movimiento">
         <div class="fila-form">
           <div>
-            <label for="producto_id">Producto</label>
-            <select id="producto_id" name="producto_id" required>
-              {% for p in productos %}
-                <option value="{{ p.id }}">{{ p.titulo }} ({{ p.sku }})</option>
-              {% endfor %}
-            </select>
+            <label for="mov_sku">SKU del producto</label>
+            <input type="text" id="mov_sku" list="datalist-productos" autocomplete="off" placeholder="Escribe o escanea el SKU">
+            <div id="mov_sku_error" style="color:#B02A2A; font-size:12px; margin-top:3px"></div>
+            <input type="hidden" id="mov_producto_id" name="producto_id">
           </div>
           <div>
             <label for="sucursal_id">Sucursal</label>
@@ -176,6 +174,64 @@
         <button type="submit">Registrar movimiento</button>
       </form>
     </div>
+
+    <datalist id="datalist-productos">
+      {% for p in productos %}
+        <option value="{{ p.sku }}">{{ p.titulo }}</option>
+      {% endfor %}
+    </datalist>
+
+    <script>
+      // Índice SKU (en mayúsculas) -> producto, para buscar por SKU en vez
+      // de un dropdown gigante. Se usa aquí y lo reutilizan otros forms.
+      var PRODUCTOS = {{ productos_json|safe }};
+      var PRODUCTOS_POR_SKU = {};
+      PRODUCTOS.forEach(function (p) { PRODUCTOS_POR_SKU[p.sku.toUpperCase()] = p; });
+
+      function buscarProductoPorSku(sku) {
+        return PRODUCTOS_POR_SKU[sku.trim().toUpperCase()] || null;
+      }
+
+      // Conecta un campo de texto de SKU con su input oculto de producto_id.
+      // Devuelve una función que da el producto encontrado (o null), para
+      // que quien la use pueda hacer algo más (ej. rellenar un precio).
+      function conectarBusquedaSku(idSku, idProductoId, idError) {
+        var skuEl = document.getElementById(idSku);
+        var idEl = document.getElementById(idProductoId);
+        var errorEl = document.getElementById(idError);
+
+        function actualizar() {
+          if (!skuEl.value.trim()) {
+            idEl.value = '';
+            errorEl.textContent = '';
+            return null;
+          }
+          var producto = buscarProductoPorSku(skuEl.value);
+          if (producto) {
+            idEl.value = producto.id;
+            errorEl.textContent = '';
+          } else {
+            idEl.value = '';
+            errorEl.textContent = 'SKU no encontrado.';
+          }
+          return producto;
+        }
+
+        skuEl.addEventListener('input', actualizar);
+        skuEl.addEventListener('change', actualizar);
+        return actualizar;
+      }
+
+      conectarBusquedaSku('mov_sku', 'mov_producto_id', 'mov_sku_error');
+
+      // No dejar enviar el formulario si el SKU no corresponde a un producto real.
+      document.getElementById('form-movimiento').addEventListener('submit', function (e) {
+        if (!document.getElementById('mov_producto_id').value) {
+          e.preventDefault();
+          document.getElementById('mov_sku_error').textContent = 'Escribe un SKU válido antes de continuar.';
+        }
+      });
+    </script>
   {% endif %}
 
   {# ---------- Tabla de productos y su stock por sucursal ---------- #}

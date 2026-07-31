@@ -13,7 +13,7 @@
   </p>
 
   <div class="tarjeta">
-    <form method="post" action="/ventas/carrito">
+    <form method="post" action="/ventas/carrito" id="form-carrito">
       <div class="fila-form">
         <div>
           <label for="c_sucursal">Sucursal (de dónde sale)</label>
@@ -88,22 +88,31 @@
     </form>
   </div>
 
-  <script>
-    var PRODUCTOS = {{ productos_json|safe }};
+  <datalist id="datalist-productos">
+    {% for p in productos %}
+      <option value="{{ p.sku }}">{{ p.titulo }}</option>
+    {% endfor %}
+  </datalist>
 
-    function opcionesProducto() {
-      return PRODUCTOS.map(function (p) {
-        var precio = p.precio === null ? '' : p.precio;
-        var precioMayoreo = p.precioMayoreo === null ? '' : p.precioMayoreo;
-        return '<option value="' + p.id + '" data-precio="' + precio + '" data-precio-mayoreo="' + precioMayoreo + '">' +
-               p.texto + '</option>';
-      }).join('');
+  <script>
+    // Índice SKU (mayúsculas) -> producto, para buscar por SKU en cada
+    // renglón en vez de un dropdown gigante.
+    var PRODUCTOS = {{ productos_json|safe }};
+    var PRODUCTOS_POR_SKU = {};
+    PRODUCTOS.forEach(function (p) { PRODUCTOS_POR_SKU[p.sku.toUpperCase()] = p; });
+
+    function buscarProductoPorSku(sku) {
+      return PRODUCTOS_POR_SKU[sku.trim().toUpperCase()] || null;
     }
 
     function agregarFila() {
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td><select name="producto_id" class="sel-producto">' + opcionesProducto() + '</select></td>' +
+        '<td>' +
+          '<input type="text" class="inp-sku" list="datalist-productos" autocomplete="off" placeholder="SKU" style="width:110px">' +
+          '<input type="hidden" name="producto_id" class="inp-producto-id">' +
+          '<div class="sku-error" style="color:#B02A2A; font-size:11px"></div>' +
+        '</td>' +
         '<td><select name="tipo_precio" class="sel-tipo"><option value="menudeo">Menudeo</option><option value="mayoreo">Mayoreo</option></select></td>' +
         '<td><input type="number" name="cantidad" min="1" value="1" class="inp-cantidad" style="width:60px"></td>' +
         '<td><input type="text" name="precio" class="inp-precio" style="width:90px"></td>' +
@@ -122,26 +131,41 @@
     }
 
     function conectarFila(tr) {
-      var selProducto = tr.querySelector('.sel-producto');
+      var skuEl = tr.querySelector('.inp-sku');
+      var idEl = tr.querySelector('.inp-producto-id');
+      var errorEl = tr.querySelector('.sku-error');
       var selTipo = tr.querySelector('.sel-tipo');
       var inpPrecio = tr.querySelector('.inp-precio');
 
-      function rellenarPrecio() {
-        var opcion = selProducto.options[selProducto.selectedIndex];
-        if (!opcion) return;
-        var campo = selTipo.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
-        var valor = opcion.dataset[campo];
-        if (valor) inpPrecio.value = parseFloat(valor).toFixed(2);
+      function resolverSku() {
+        if (!skuEl.value.trim()) {
+          idEl.value = '';
+          errorEl.textContent = '';
+          recalcularFila(tr);
+          return;
+        }
+        var producto = buscarProductoPorSku(skuEl.value);
+        if (producto) {
+          idEl.value = producto.id;
+          errorEl.textContent = '';
+          var campo = selTipo.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
+          var valor = producto[campo];
+          if (valor !== null && valor !== undefined) {
+            inpPrecio.value = parseFloat(valor).toFixed(2);
+          }
+        } else {
+          idEl.value = '';
+          errorEl.textContent = 'No encontrado.';
+        }
         recalcularFila(tr);
       }
 
-      selProducto.addEventListener('change', rellenarPrecio);
-      selTipo.addEventListener('change', rellenarPrecio);
+      skuEl.addEventListener('input', resolverSku);
+      skuEl.addEventListener('change', resolverSku);
+      selTipo.addEventListener('change', resolverSku);
       tr.querySelectorAll('.inp-precio, .inp-cantidad, .inp-descuento').forEach(function (el) {
         el.addEventListener('input', function () { recalcularFila(tr); });
       });
-
-      rellenarPrecio();
     }
 
     function recalcularFila(tr) {
@@ -175,6 +199,25 @@
 
     // Arranca el carrito con una fila lista para usarse.
     agregarFila();
+
+    // No dejar enviar el formulario si alguna fila quedó con un SKU sin resolver.
+    document.getElementById('form-carrito').addEventListener('submit', function (e) {
+      var faltantes = 0;
+      document.querySelectorAll('#filas-carrito tr').forEach(function (tr) {
+        var skuEl = tr.querySelector('.inp-sku');
+        var idEl = tr.querySelector('.inp-producto-id');
+        if (skuEl.value.trim() && !idEl.value) {
+          tr.querySelector('.sku-error').textContent = 'No encontrado.';
+          faltantes++;
+        } else if (!idEl.value) {
+          tr.querySelector('.sku-error').textContent = 'Falta el SKU.';
+          faltantes++;
+        }
+      });
+      if (faltantes > 0) {
+        e.preventDefault();
+      }
+    });
   </script>
 
 {% endblock %}

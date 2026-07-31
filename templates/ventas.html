@@ -12,19 +12,13 @@
     ¿Son varias prendas juntas? Usa <a href="/ventas/carrito">Venta múltiple</a> en su lugar.
   </p>
   <div class="tarjeta">
-    <form method="post" action="/ventas">
+    <form method="post" action="/ventas" id="form-venta">
       <div class="fila-form">
         <div>
-          <label for="v_producto">Producto</label>
-          <select id="v_producto" name="producto_id" required>
-            {% for p in productos %}
-              <option value="{{ p.id }}"
-                      data-precio="{{ p.precio if p.precio is not none else '' }}"
-                      data-precio-mayoreo="{{ p.precio_mayoreo if p.precio_mayoreo is not none else '' }}">
-                {{ p.titulo }} ({{ p.sku }})
-              </option>
-            {% endfor %}
-          </select>
+          <label for="v_sku">SKU del producto</label>
+          <input type="text" id="v_sku" list="datalist-productos" autocomplete="off" placeholder="Escribe o escanea el SKU">
+          <div id="v_sku_error" style="color:#B02A2A; font-size:12px; margin-top:3px"></div>
+          <input type="hidden" id="v_producto" name="producto_id">
         </div>
         <div>
           <label for="v_sucursal">Sucursal (de dónde sale)</label>
@@ -107,13 +101,32 @@
     </form>
   </div>
 
+  <datalist id="datalist-productos">
+    {% for p in productos %}
+      <option value="{{ p.sku }}">{{ p.titulo }}</option>
+    {% endfor %}
+  </datalist>
+
   <script>
-    // Al elegir producto o tipo (menudeo/mayoreo), rellena el precio de venta
-    // solo. Al escribir descuento o cantidad, muestra en vivo el precio unitario
-    // final y el subtotal (× cantidad) — esto NO se guarda en el campo de
-    // precio: el servidor aplica el descuento por separado, para no duplicarlo.
+    // Índice SKU (mayúsculas) -> producto, para buscar por SKU en vez de un
+    // dropdown gigante (el catálogo ya tiene demasiados productos para eso).
+    var PRODUCTOS = {{ productos_json|safe }};
+    var PRODUCTOS_POR_SKU = {};
+    PRODUCTOS.forEach(function (p) { PRODUCTOS_POR_SKU[p.sku.toUpperCase()] = p; });
+
+    function buscarProductoPorSku(sku) {
+      return PRODUCTOS_POR_SKU[sku.trim().toUpperCase()] || null;
+    }
+
+    // Al escribir/escanear el SKU, resuelve el producto y rellena el precio de
+    // venta según menudeo/mayoreo. Al escribir descuento o cantidad, muestra
+    // en vivo el precio unitario final y el subtotal (× cantidad) — esto NO
+    // se guarda en el campo de precio: el servidor aplica el descuento por
+    // separado, para no duplicarlo.
     (function () {
-      var productoEl = document.getElementById('v_producto');
+      var skuEl = document.getElementById('v_sku');
+      var idEl = document.getElementById('v_producto');
+      var errorEl = document.getElementById('v_sku_error');
       var tipoEl = document.getElementById('v_tipo_precio');
       var precioEl = document.getElementById('v_precio');
       var cantidadEl = document.getElementById('v_cantidad');
@@ -121,13 +134,24 @@
       var finalEl = document.getElementById('v_precio_final');
       var subtotalEl = document.getElementById('v_subtotal');
 
-      function rellenarPrecio() {
-        var opcion = productoEl.options[productoEl.selectedIndex];
-        if (!opcion) return;
-        var atributo = tipoEl.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
-        var valor = opcion.dataset[atributo];
-        if (valor) {
-          precioEl.value = parseFloat(valor).toFixed(2);
+      function resolverSku() {
+        if (!skuEl.value.trim()) {
+          idEl.value = '';
+          errorEl.textContent = '';
+          return;
+        }
+        var producto = buscarProductoPorSku(skuEl.value);
+        if (producto) {
+          idEl.value = producto.id;
+          errorEl.textContent = '';
+          var atributo = tipoEl.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
+          var valor = producto[atributo];
+          if (valor !== null && valor !== undefined) {
+            precioEl.value = parseFloat(valor).toFixed(2);
+          }
+        } else {
+          idEl.value = '';
+          errorEl.textContent = 'SKU no encontrado.';
         }
         actualizarFinal();
       }
@@ -146,15 +170,21 @@
         subtotalEl.textContent = isNaN(cantidad) ? '—' : '$' + (final * cantidad).toFixed(2);
       }
 
-      productoEl.addEventListener('change', rellenarPrecio);
-      tipoEl.addEventListener('change', rellenarPrecio);
+      skuEl.addEventListener('input', resolverSku);
+      skuEl.addEventListener('change', resolverSku);
+      tipoEl.addEventListener('change', resolverSku);
       precioEl.addEventListener('input', actualizarFinal);
       cantidadEl.addEventListener('input', actualizarFinal);
       descuentoEl.addEventListener('input', actualizarFinal);
-
-      // Al cargar la página, rellena con el producto/tipo ya seleccionados por defecto.
-      rellenarPrecio();
     })();
+
+    // No dejar enviar el formulario si el SKU no corresponde a un producto real.
+    document.getElementById('form-venta').addEventListener('submit', function (e) {
+      if (!document.getElementById('v_producto').value) {
+        e.preventDefault();
+        document.getElementById('v_sku_error').textContent = 'Escribe un SKU válido antes de continuar.';
+      }
+    });
   </script>
 
   <h2>

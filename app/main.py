@@ -116,6 +116,23 @@ def calcular_margen(precio, costo) -> float | None:
     return float((precio - costo) / precio * 100)
 
 
+def productos_a_json(productos) -> str:
+    """Convierte una lista de productos (mappings con id/sku/titulo/precio/
+    precio_mayoreo) a un JSON que el JavaScript usa para buscar por SKU y
+    autocompletar precios, sin tener que ir al servidor por cada búsqueda.
+    """
+    return json.dumps([
+        {
+            "id": p["id"],
+            "sku": p["sku"],
+            "texto": f"{p['titulo']} ({p['sku']})",
+            "precio": float(p["precio"]) if p["precio"] is not None else None,
+            "precioMayoreo": float(p["precio_mayoreo"]) if p["precio_mayoreo"] is not None else None,
+        }
+        for p in productos
+    ])
+
+
 def procesar_foto(contenido: bytes) -> tuple[bytes, str]:
     """Redimensiona y comprime una foto antes de guardarla en la base.
 
@@ -195,6 +212,7 @@ def pagina_principal(request: Request, error: str | None = None):
         {
             "sucursales": sucursales,
             "productos": productos,
+            "productos_json": productos_a_json(productos),
             "filas": filas,
             "movimientos": movimientos,
             "error": error,
@@ -456,7 +474,8 @@ def ver_ventas(request: Request, error: str | None = None):
 
     return templates.TemplateResponse(request, "ventas.html", {
         "ventas": ventas, "error": error,
-        "productos": productos, "sucursales": sucursales, "clientas": clientas,
+        "productos": productos, "productos_json": productos_a_json(productos),
+        "sucursales": sucursales, "clientas": clientas,
     })
 
 
@@ -618,21 +637,9 @@ def carrito_venta(request: Request, error: str | None = None):
             "SELECT id, nombre FROM clientas ORDER BY nombre"
         )).mappings().all()
 
-    # Lista de productos como JSON, para que el JavaScript arme filas nuevas
-    # del carrito sin recargar la página.
-    productos_json = json.dumps([
-        {
-            "id": p["id"],
-            "texto": f"{p['titulo']} ({p['sku']})",
-            "precio": float(p["precio"]) if p["precio"] is not None else None,
-            "precioMayoreo": float(p["precio_mayoreo"]) if p["precio_mayoreo"] is not None else None,
-        }
-        for p in productos
-    ])
-
     return templates.TemplateResponse(request, "carrito.html", {
         "sucursales": sucursales, "clientas": clientas, "error": error,
-        "productos_json": productos_json,
+        "productos_json": productos_a_json(productos),
     })
 
 
