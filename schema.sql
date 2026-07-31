@@ -132,6 +132,13 @@ CREATE TABLE IF NOT EXISTS ventas (
     precio_unitario NUMERIC(10, 2) NOT NULL,   -- a cuánto se vendió cada pieza (YA con descuento aplicado)
     costo_unitario  NUMERIC(10, 2),            -- costo de la prenda al momento de vender (foto)
     descuento_pct   NUMERIC(5, 2) CHECK (descuento_pct >= 0 AND descuento_pct <= 100),  -- porcentaje de descuento aplicado, si hubo
+
+    -- Agrupa las varias líneas de una misma compra (ej. las prendas del
+    -- carrito) como UN solo "ticket", para poder calcular el ticket promedio
+    -- (gasto por visita, no por prenda). NULL en ventas viejas = se trata
+    -- como su propio ticket individual.
+    pedido_id       TEXT,
+
     creada_en       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -149,6 +156,10 @@ ALTER TABLE ventas ADD COLUMN IF NOT EXISTS tipo_precio TEXT NOT NULL DEFAULT 'm
 -- Porcentaje de descuento aplicado en la venta (NULL = sin descuento).
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS descuento_pct NUMERIC(5, 2)
     CHECK (descuento_pct >= 0 AND descuento_pct <= 100);
+
+-- Agrupa varias líneas de una misma compra como un solo ticket.
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS pedido_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_ventas_pedido ON ventas (pedido_id);
 
 
 -- ------------------------------------------------------------

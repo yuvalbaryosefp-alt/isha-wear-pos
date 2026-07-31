@@ -13,6 +13,7 @@ import io
 import json
 import os
 import secrets
+import uuid
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -360,16 +361,17 @@ def registrar_venta(
         ), {"p": producto_id, "s": sucursal_id, "delta": -cantidad_num, "motivo": f"venta {canal}"})
 
         # 3) Guarda el registro financiero (cliente_id puede ser None).
+        # pedido_id propio: una venta individual es un ticket de una sola línea.
         venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-            " costo_unitario, cliente_id, descuento_pct) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento) "
+            " costo_unitario, cliente_id, descuento_pct, pedido_id) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido) "
             "RETURNING id"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
-            "cliente": cliente_id_num, "descuento": descuento_pct,
+            "cliente": cliente_id_num, "descuento": descuento_pct, "pedido": str(uuid.uuid4()),
         }).scalar_one()
 
         # 4) Registra el pago inicial (ya validado arriba). Si el monto es 0,
@@ -729,6 +731,9 @@ def registrar_carrito(
             )
 
         # --- Paso 3: ya validado todo; ahora sí se descuenta stock y se crea cada venta. ---
+        # Un solo pedido_id compartido: todas las prendas del carrito son
+        # UN ticket (para el ticket promedio), no uno por prenda.
+        pedido_id = str(uuid.uuid4())
         venta_ids = []
         for it in items_resueltos:
             conn.execute(text(
@@ -747,13 +752,13 @@ def registrar_carrito(
             venta_id = conn.execute(text(
                 "INSERT INTO ventas "
                 "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-                " costo_unitario, cliente_id, descuento_pct) "
-                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento) "
+                " costo_unitario, cliente_id, descuento_pct, pedido_id) "
+                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido) "
                 "RETURNING id"
             ), {
                 "p": it["producto_id"], "s": sucursal_id, "canal": canal, "tipo_precio": it["tipo_precio"],
                 "cant": it["cantidad"], "precio": it["precio_unitario"], "costo": it["costo_unitario"],
-                "cliente": cliente_id_num, "descuento": it["descuento_pct"],
+                "cliente": cliente_id_num, "descuento": it["descuento_pct"], "pedido": pedido_id,
             }).scalar_one()
             venta_ids.append(venta_id)
 
@@ -1217,6 +1222,19 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             f"FROM ventas v {where} GROUP BY v.canal ORDER BY bruta DESC"
         ), params).mappings().all()
 
+        # Ticket promedio = gasto promedio POR VISITA/COMPRA, no por prenda.
+        # Agrupa las líneas de una misma compra por pedido_id (las ventas
+        # individuales usan su propio id como grupo de 1 sola línea).
+        ticket = conn.execute(text(
+            "SELECT COUNT(*) AS num_tickets, AVG(total_ticket) AS ticket_promedio "
+            "FROM ("
+            "  SELECT COALESCE(v.pedido_id, 'v' || v.id::text) AS ticket_key, "
+            "         SUM(v.precio_unitario * v.cantidad) AS total_ticket "
+            f" FROM ventas v {where} "
+            "  GROUP BY COALESCE(v.pedido_id, 'v' || v.id::text)"
+            ") sub"
+        ), params).mappings().one()
+
     # Nombres bonitos para los canales.
     etiquetas_canal = {"boutique": "Boutique", "ecommerce": "E-commerce"}
     canal_filas = []
@@ -1232,4 +1250,6 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         "por_categoria": [_resumen(r) for r in por_categoria],
         "por_sucursal": [_resumen(r) for r in por_sucursal],
         "por_canal": canal_filas,
+        "num_tickets": int(ticket["num_tickets"] or 0),
+        "ticket_promedio": float(ticket["ticket_promedio"]) if ticket["ticket_promedio"] is not None else 0.0,
     })

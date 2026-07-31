@@ -89,7 +89,19 @@
       <div class="n">{{ "%.1f"|format(total.margen) }}%</div>
       <div class="l">Margen</div>
     </div>
+    <div class="stat">
+      <div class="n">{{ num_tickets }}</div>
+      <div class="l">Tickets (visitas/compras)</div>
+    </div>
+    <div class="stat destacado">
+      <div class="n">${{ "%.2f"|format(ticket_promedio) }}</div>
+      <div class="l">Ticket promedio</div>
+    </div>
   </div>
+  <p style="font-size:12px; color:#777; margin:-8px 0 0">
+    El ticket promedio es el gasto por visita/compra, no por prenda: si una clienta se lleva varias
+    prendas en una sola compra (individual o del carrito), cuentan como un solo ticket.
+  </p>
 
   {# ---------- Desgloses ---------- #}
   {{ tabla_desglose("Por categoría", "Categoría", por_categoria) }}
