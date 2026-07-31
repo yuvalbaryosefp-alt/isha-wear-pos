@@ -108,4 +108,76 @@
   {{ tabla_desglose("Por sucursal", "Sucursal", por_sucursal) }}
   {{ tabla_desglose("Por canal", "Canal", por_canal) }}
 
+  {# ---------- Top productos (mismo período filtrado) ---------- #}
+  <h2>Top productos por ganancia</h2>
+  {% if top_productos %}
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Producto</th>
+          <th>SKU</th>
+          <th>Piezas</th>
+          <th>Ingresos</th>
+          <th>Ganancia bruta</th>
+          <th>Margen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in top_productos %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><a href="/productos/{{ f.id }}/historial">{{ f.titulo }}</a></td>
+            <td>{{ f.sku }}</td>
+            <td class="num">{{ f.piezas }}</td>
+            <td class="num">${{ "%.2f"|format(f.ingresos) }}</td>
+            <td class="num">${{ "%.2f"|format(f.bruta) }}</td>
+            <td class="num">{{ "%.1f"|format(f.margen) }}%</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Sin ventas en este período.</div>
+  {% endif %}
+
+  {# ---------- Prendas que no se mueven (independiente del filtro de fecha) ---------- #}
+  <h2>Prendas que no se mueven ({{ dias_alerta_stock }}+ días sin vender)</h2>
+  <p style="font-size:12px; color:#777; margin-top:-8px">
+    Solo prendas que SÍ tienen stock en alguna sucursal. No depende del filtro de fechas de arriba —
+    siempre mira hasta hoy. Candidatas a liquidar, poner en oferta, o dejar de reordenar.
+  </p>
+  {% if sin_movimiento %}
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>SKU</th>
+          <th>Categoría</th>
+          <th>Stock actual</th>
+          <th>Última venta</th>
+          <th>Días sin vender</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in sin_movimiento %}
+          <tr>
+            <td>{{ f.titulo }}</td>
+            <td>{{ f.sku }}</td>
+            <td>{{ f.categoria or "—" }}</td>
+            <td class="num">{{ f.stock_total }}</td>
+            <td>{{ f.ultima_venta.strftime("%d/%m/%Y") if f.ultima_venta else "Nunca" }}</td>
+            <td class="num" style="color:#B02A2A">
+              {{ f.dias_sin_vender if f.dias_sin_vender is not none else "—" }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">
+      Ninguna prenda con stock lleva {{ dias_alerta_stock }} días o más sin venderse. 👍
+    </div>
+  {% endif %}
+
 {% endblock %}

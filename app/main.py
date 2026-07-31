@@ -36,6 +36,10 @@ FOTO_ANCHO_MAX = 1000
 # Días sin comprar a partir de los cuales una clienta se marca como "no ha vuelto".
 DIAS_SIN_COMPRAR_ALERTA = 60
 
+# Días sin venderse a partir de los cuales una prenda con stock se marca
+# como "no se mueve" (candidata a liquidar o dejar de reordenar).
+DIAS_SIN_VENDER_ALERTA = 60
+
 # ---------------------------------------------------------------------------
 # Protección con usuario y contraseña (HTTP Basic Auth).
 # El navegador muestra un cuadro de login antes de dejar ver cualquier página.
@@ -1242,6 +1246,31 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             ") sub"
         ), params).mappings().one()
 
+        # Top 10 productos por ganancia bruta, en el mismo período filtrado.
+        top_productos = conn.execute(text(
+            f"SELECT p.id, p.sku, p.titulo, {_METRICAS} "
+            f"FROM ventas v JOIN productos p ON p.id = v.producto_id {where} "
+            f"GROUP BY p.id, p.sku, p.titulo ORDER BY bruta DESC LIMIT 10"
+        ), params).mappings().all()
+
+        # Prendas con stock que no se han vendido en DIAS_SIN_VENDER_ALERTA días
+        # (o nunca) — candidatas a liquidar o dejar de reordenar. Esto NO se
+        # filtra por el período del reporte: siempre mira "hasta hoy".
+        sin_movimiento = conn.execute(text(
+            "SELECT p.sku, p.titulo, p.categoria, MAX(v.creada_en) AS ultima_venta, "
+            "       COALESCE(SUM(st.cantidad), 0) AS stock_total "
+            "FROM productos p "
+            "LEFT JOIN ventas v ON v.producto_id = p.id "
+            "LEFT JOIN stock st ON st.producto_id = p.id "
+            "WHERE p.activo = TRUE "
+            "GROUP BY p.id, p.sku, p.titulo, p.categoria "
+            "HAVING COALESCE(SUM(st.cantidad), 0) > 0 "
+            "   AND (MAX(v.creada_en) IS NULL "
+            "        OR MAX(v.creada_en) < NOW() - (:dias || ' days')::interval) "
+            "ORDER BY ultima_venta ASC NULLS FIRST "
+            "LIMIT 50"
+        ), {"dias": DIAS_SIN_VENDER_ALERTA}).mappings().all()
+
     # Nombres bonitos para los canales.
     etiquetas_canal = {"boutique": "Boutique", "ecommerce": "E-commerce"}
     canal_filas = []
@@ -1249,6 +1278,27 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         fila = _resumen(r)
         fila["dim"] = etiquetas_canal.get(fila["dim"], fila["dim"])
         canal_filas.append(fila)
+
+    # Top productos: mismas métricas, con sku/título en vez de una dimensión.
+    top_productos_filas = []
+    for r in top_productos:
+        fila = _resumen(r)
+        fila["id"] = r["id"]
+        fila["sku"] = r["sku"]
+        fila["titulo"] = r["titulo"]
+        top_productos_filas.append(fila)
+
+    # Productos sin venta reciente: calcula días sin vender para mostrar.
+    ahora = datetime.now(ZONA_CDMX)
+    sin_movimiento_filas = []
+    for r in sin_movimiento:
+        ultima = r["ultima_venta"].astimezone(ZONA_CDMX) if r["ultima_venta"] else None
+        sin_movimiento_filas.append({
+            "sku": r["sku"], "titulo": r["titulo"], "categoria": r["categoria"],
+            "ultima_venta": ultima,
+            "dias_sin_vender": (ahora - ultima).days if ultima else None,
+            "stock_total": r["stock_total"],
+        })
 
     return templates.TemplateResponse(request, "reportes.html", {
         "desde": desde,
@@ -1259,4 +1309,7 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         "por_canal": canal_filas,
         "num_tickets": int(ticket["num_tickets"] or 0),
         "ticket_promedio": float(ticket["ticket_promedio"]) if ticket["ticket_promedio"] is not None else 0.0,
+        "top_productos": top_productos_filas,
+        "sin_movimiento": sin_movimiento_filas,
+        "dias_alerta_stock": DIAS_SIN_VENDER_ALERTA,
     })
