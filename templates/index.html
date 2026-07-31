@@ -137,6 +137,7 @@
             <input type="text" id="mov_sku" list="datalist-productos" autocomplete="off" placeholder="Escribe o escanea el SKU">
             <div id="mov_sku_error" style="color:#B02A2A; font-size:12px; margin-top:3px"></div>
             <input type="hidden" id="mov_producto_id" name="producto_id">
+            <img id="mov_foto" alt="" style="display:none; width:56px; height:56px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid var(--borde)" onerror="this.style.display='none'">
           </div>
           <div>
             <label for="sucursal_id">Sucursal</label>
@@ -195,24 +196,33 @@
       // Conecta un campo de texto de SKU con su input oculto de producto_id.
       // Devuelve una función que da el producto encontrado (o null), para
       // que quien la use pueda hacer algo más (ej. rellenar un precio).
-      function conectarBusquedaSku(idSku, idProductoId, idError) {
+      // idFoto es opcional: si se da, muestra la foto del producto encontrado
+      // (o la oculta si no tiene, vía onerror en el <img>).
+      function conectarBusquedaSku(idSku, idProductoId, idError, idFoto) {
         var skuEl = document.getElementById(idSku);
         var idEl = document.getElementById(idProductoId);
         var errorEl = document.getElementById(idError);
+        var fotoEl = idFoto ? document.getElementById(idFoto) : null;
 
         function actualizar() {
           if (!skuEl.value.trim()) {
             idEl.value = '';
             errorEl.textContent = '';
+            if (fotoEl) { fotoEl.style.display = 'none'; }
             return null;
           }
           var producto = buscarProductoPorSku(skuEl.value);
           if (producto) {
             idEl.value = producto.id;
             errorEl.textContent = '';
+            if (fotoEl) {
+              fotoEl.src = '/productos/' + producto.id + '/foto';
+              fotoEl.style.display = '';
+            }
           } else {
             idEl.value = '';
             errorEl.textContent = 'SKU no encontrado.';
+            if (fotoEl) { fotoEl.style.display = 'none'; }
           }
           return producto;
         }
@@ -222,7 +232,7 @@
         return actualizar;
       }
 
-      conectarBusquedaSku('mov_sku', 'mov_producto_id', 'mov_sku_error');
+      conectarBusquedaSku('mov_sku', 'mov_producto_id', 'mov_sku_error', 'mov_foto');
 
       // No dejar enviar el formulario si el SKU no corresponde a un producto real.
       document.getElementById('form-movimiento').addEventListener('submit', function (e) {

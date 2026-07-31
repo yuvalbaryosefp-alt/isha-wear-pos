@@ -19,6 +19,7 @@
           <input type="text" id="v_sku" list="datalist-productos" autocomplete="off" placeholder="Escribe o escanea el SKU">
           <div id="v_sku_error" style="color:#B02A2A; font-size:12px; margin-top:3px"></div>
           <input type="hidden" id="v_producto" name="producto_id">
+          <img id="v_foto" alt="" style="display:none; width:72px; height:72px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid var(--borde)" onerror="this.style.display='none'">
         </div>
         <div>
           <label for="v_sucursal">Sucursal (de dónde sale)</label>
@@ -133,11 +134,13 @@
       var descuentoEl = document.getElementById('v_descuento');
       var finalEl = document.getElementById('v_precio_final');
       var subtotalEl = document.getElementById('v_subtotal');
+      var fotoEl = document.getElementById('v_foto');
 
       function resolverSku() {
         if (!skuEl.value.trim()) {
           idEl.value = '';
           errorEl.textContent = '';
+          fotoEl.style.display = 'none';
           return;
         }
         var producto = buscarProductoPorSku(skuEl.value);
@@ -149,9 +152,12 @@
           if (valor !== null && valor !== undefined) {
             precioEl.value = parseFloat(valor).toFixed(2);
           }
+          fotoEl.src = '/productos/' + producto.id + '/foto';
+          fotoEl.style.display = '';
         } else {
           idEl.value = '';
           errorEl.textContent = 'SKU no encontrado.';
+          fotoEl.style.display = 'none';
         }
         actualizarFinal();
       }
