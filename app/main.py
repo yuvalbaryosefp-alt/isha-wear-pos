@@ -227,56 +227,71 @@ def pagina_principal(request: Request, error: str | None = None):
 @app.post("/movimientos")
 def registrar_movimiento(
     producto_id: int = Form(...),
-    sucursal_id: int = Form(...),
     tipo: str = Form(...),
-    cantidad: str = Form(...),
+    sucursal_id: list[int] = Form(...),
+    cantidad: list[str] = Form(...),
     motivo: str = Form(""),
 ):
-    """Registra un movimiento y actualiza el stock de esa sucursal."""
+    """Registra un movimiento en una o varias sucursales a la vez (ej. llegan
+    6 piezas y se reparten 3 a Tecamachalco y 3 a Prado Norte en un solo
+    envío). Un renglón de sucursal con cantidad vacía significa "no tocar
+    esa sucursal"."""
     tipo = tipo.strip()
     motivo = motivo.strip() or None
-
-    # La cantidad debe ser un número entero.
-    try:
-        cantidad_num = int(cantidad.strip())
-    except ValueError:
-        return RedirectResponse("/?error=La cantidad debe ser un número entero.", status_code=303)
 
     if tipo not in ("entrada", "ajuste"):
         return RedirectResponse("/?error=Tipo de movimiento inválido.", status_code=303)
 
-    if tipo == "entrada" and cantidad_num <= 0:
-        return RedirectResponse("/?error=La cantidad debe ser mayor a 0.", status_code=303)
-    if tipo == "ajuste" and cantidad_num < 0:
-        return RedirectResponse("/?error=La cantidad no puede ser negativa.", status_code=303)
+    if len(sucursal_id) != len(cantidad):
+        return RedirectResponse("/?error=Datos de sucursales inconsistentes.", status_code=303)
+
+    # Valida TODOS los renglones (solo lecturas) antes de escribir nada.
+    renglones = []
+    for sid, cant_str in zip(sucursal_id, cantidad):
+        cant_str = cant_str.strip()
+        if not cant_str:
+            continue  # sucursal sin cantidad = no se toca
+        try:
+            cant_num = int(cant_str)
+        except ValueError:
+            return RedirectResponse("/?error=La cantidad debe ser un número entero.", status_code=303)
+        if tipo == "entrada" and cant_num <= 0:
+            return RedirectResponse("/?error=La cantidad debe ser mayor a 0.", status_code=303)
+        if tipo == "ajuste" and cant_num < 0:
+            return RedirectResponse("/?error=La cantidad no puede ser negativa.", status_code=303)
+        renglones.append((sid, cant_num))
+
+    if not renglones:
+        return RedirectResponse("/?error=Escribe la cantidad de al menos una sucursal.", status_code=303)
 
     with engine.begin() as conn:
-        # Stock actual del producto en esa sucursal (0 si no existía el renglón).
-        actual = conn.execute(text(
-            "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
-        ), {"p": producto_id, "s": sucursal_id}).scalar()
-        actual = actual if actual is not None else 0
+        for sid, cant_num in renglones:
+            # Stock actual del producto en esa sucursal (0 si no existía el renglón).
+            actual = conn.execute(text(
+                "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
+            ), {"p": producto_id, "s": sid}).scalar()
+            actual = actual if actual is not None else 0
 
-        # Calcula el nuevo stock y el "delta" (cuánto cambió) según el tipo.
-        if tipo == "entrada":
-            nuevo = actual + cantidad_num
-            delta = cantidad_num
-        else:  # ajuste: el stock queda exactamente en la cantidad indicada
-            nuevo = cantidad_num
-            delta = cantidad_num - actual
+            # Calcula el nuevo stock y el "delta" (cuánto cambió) según el tipo.
+            if tipo == "entrada":
+                nuevo = actual + cant_num
+                delta = cant_num
+            else:  # ajuste: el stock queda exactamente en la cantidad indicada
+                nuevo = cant_num
+                delta = cant_num - actual
 
-        # Actualiza (o crea) el renglón de stock.
-        conn.execute(text(
-            "INSERT INTO stock (producto_id, sucursal_id, cantidad) VALUES (:p, :s, :c) "
-            "ON CONFLICT (producto_id, sucursal_id) "
-            "DO UPDATE SET cantidad = :c, actualizado_en = NOW()"
-        ), {"p": producto_id, "s": sucursal_id, "c": nuevo})
+            # Actualiza (o crea) el renglón de stock.
+            conn.execute(text(
+                "INSERT INTO stock (producto_id, sucursal_id, cantidad) VALUES (:p, :s, :c) "
+                "ON CONFLICT (producto_id, sucursal_id) "
+                "DO UPDATE SET cantidad = :c, actualizado_en = NOW()"
+            ), {"p": producto_id, "s": sid, "c": nuevo})
 
-        # Guarda el movimiento en el historial.
-        conn.execute(text(
-            "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
-            "VALUES (:p, :s, :tipo, :delta, :motivo)"
-        ), {"p": producto_id, "s": sucursal_id, "tipo": tipo, "delta": delta, "motivo": motivo})
+            # Guarda el movimiento en el historial.
+            conn.execute(text(
+                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+                "VALUES (:p, :s, :tipo, :delta, :motivo)"
+            ), {"p": producto_id, "s": sid, "tipo": tipo, "delta": delta, "motivo": motivo})
 
     return RedirectResponse("/", status_code=303)
 

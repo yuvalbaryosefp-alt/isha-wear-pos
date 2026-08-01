@@ -140,26 +140,21 @@
             <img id="mov_foto" alt="" style="display:none; width:56px; height:56px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid var(--borde)" onerror="this.style.display='none'">
           </div>
           <div>
-            <label for="sucursal_id">Sucursal</label>
-            <select id="sucursal_id" name="sucursal_id" required>
-              {% for s in sucursales %}
-                <option value="{{ s.id }}">{{ s.nombre }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-        <div class="fila-form">
-          <div>
             <label for="tipo">Tipo</label>
             <select id="tipo" name="tipo" required>
               <option value="entrada">Entrada (llegó mercancía)</option>
               <option value="ajuste">Ajuste (fijar cantidad exacta)</option>
             </select>
           </div>
-          <div>
-            <label for="cantidad">Cantidad</label>
-            <input type="number" id="cantidad" name="cantidad" min="0" required>
-          </div>
+        </div>
+        <div class="fila-form">
+          {% for s in sucursales %}
+            <div>
+              <label for="mov_cant_{{ s.id }}">{{ s.nombre }}</label>
+              <input type="hidden" name="sucursal_id" value="{{ s.id }}">
+              <input type="number" id="mov_cant_{{ s.id }}" name="cantidad" min="0" placeholder="0">
+            </div>
+          {% endfor %}
         </div>
         <div class="fila-form">
           <div>
@@ -168,9 +163,9 @@
           </div>
         </div>
         <p style="font-size:12px; color:#777; margin:10px 0 0">
-          <strong>Entrada</strong> suma stock ·
-          <strong>Ajuste</strong> lo deja exactamente en la cantidad que escribas.
-          (Las ventas se registran arriba.)
+          <strong>Entrada</strong> suma stock · <strong>Ajuste</strong> lo deja exactamente en la cantidad que escribas.
+          Deja en blanco la sucursal que no quieras tocar — por ejemplo, si llegan 6 piezas y se reparten
+          3 a cada sucursal, escribe 3 en cada una en un solo envío. (Las ventas se registran arriba.)
         </p>
         <button type="submit">Registrar movimiento</button>
       </form>
@@ -234,11 +229,21 @@
 
       conectarBusquedaSku('mov_sku', 'mov_producto_id', 'mov_sku_error', 'mov_foto');
 
-      // No dejar enviar el formulario si el SKU no corresponde a un producto real.
+      // No dejar enviar el formulario si el SKU no corresponde a un producto real,
+      // ni si no se escribió cantidad en ninguna sucursal.
       document.getElementById('form-movimiento').addEventListener('submit', function (e) {
         if (!document.getElementById('mov_producto_id').value) {
           e.preventDefault();
           document.getElementById('mov_sku_error').textContent = 'Escribe un SKU válido antes de continuar.';
+          return;
+        }
+        var hayCantidad = Array.prototype.some.call(
+          document.querySelectorAll('#form-movimiento input[name="cantidad"]'),
+          function (el) { return el.value.trim() !== ''; }
+        );
+        if (!hayCantidad) {
+          e.preventDefault();
+          document.getElementById('mov_sku_error').textContent = 'Escribe la cantidad de al menos una sucursal.';
         }
       });
     </script>
