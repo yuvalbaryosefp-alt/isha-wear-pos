@@ -66,6 +66,26 @@
         Si pones un % de utilidad (con el costo ya escrito arriba), el precio se recalcula solo
         como costo × (1 + %/100) y gana sobre el precio escrito a mano.
       </p>
+
+      <p style="font-size:13px; color:#555; margin:10px 0 4px">
+        Cantidad de piezas por sucursal (opcional — cámbiala aquí si necesitas corregirla)
+      </p>
+      <div class="fila-form">
+        {% for s in stock_por_sucursal %}
+          <div>
+            <label for="edit_stock_{{ s.id }}">{{ s.nombre }}</label>
+            <input type="hidden" name="sucursal_stock_id" value="{{ s.id }}">
+            <input type="number" id="edit_stock_{{ s.id }}" name="cantidad_stock" min="0"
+                   placeholder="{{ s.cantidad }}">
+          </div>
+        {% endfor %}
+      </div>
+      <p style="font-size:12px; color:#777; margin:-6px 0 10px">
+        El número gris de fondo es la cantidad actual. Deja en blanco la sucursal que no quieras
+        cambiar; si escribes un número, la cantidad de esa sucursal queda fijada exactamente en ese valor
+        (sube o baja según haga falta).
+      </p>
+
       <div class="fila-form">
         <div>
           <label for="foto">Foto de la prenda</label>

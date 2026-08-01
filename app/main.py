@@ -1119,7 +1119,8 @@ def ver_desactivados(request: Request):
 
 @app.get("/productos/{producto_id}/editar")
 def editar_producto_form(request: Request, producto_id: int):
-    """Muestra la pantalla para editar un producto (poner precio de venta, ajustar costo)."""
+    """Muestra la pantalla para editar un producto (poner precio de venta, ajustar costo,
+    y ajustar la cantidad de piezas en cada sucursal)."""
     with engine.connect() as conn:
         producto = conn.execute(text(
             "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo, "
@@ -1127,10 +1128,22 @@ def editar_producto_form(request: Request, producto_id: int):
             "FROM productos WHERE id = :id"
         ), {"id": producto_id}).mappings().one_or_none()
 
-    if producto is None:
-        return RedirectResponse("/?error=Producto no encontrado.", status_code=303)
+        if producto is None:
+            return RedirectResponse("/?error=Producto no encontrado.", status_code=303)
 
-    return templates.TemplateResponse(request, "editar.html", {"producto": producto})
+        # Sucursales activas con la cantidad actual de este producto (0 si no
+        # tiene renglón de stock todavía), para poder editarla aquí mismo.
+        stock_por_sucursal = conn.execute(text(
+            "SELECT s.id, s.nombre, COALESCE(st.cantidad, 0) AS cantidad "
+            "FROM sucursales s "
+            "LEFT JOIN stock st ON st.sucursal_id = s.id AND st.producto_id = :id "
+            "WHERE s.activa = TRUE ORDER BY s.id"
+        ), {"id": producto_id}).mappings().all()
+
+    return templates.TemplateResponse(request, "editar.html", {
+        "producto": producto,
+        "stock_por_sucursal": stock_por_sucursal,
+    })
 
 
 @app.post("/productos/{producto_id}/editar")
@@ -1143,9 +1156,12 @@ def editar_producto(
     utilidad_menudeo: str = Form(""),  # opcional: % utilidad -> recalcula precio menudeo
     utilidad_mayoreo: str = Form(""),  # opcional: % utilidad -> recalcula precio mayoreo
     costo: str = Form(""),
+    sucursal_stock_id: list[int] = Form(default=[]),  # opcional: sucursales cuyo stock se ajusta aquí
+    cantidad_stock: list[str] = Form(default=[]),      # cantidad exacta para cada una (en blanco = no tocar)
     foto: UploadFile | None = File(None),
 ):
-    """Guarda los cambios del producto (título, categoría, los 2 precios, costo y foto).
+    """Guarda los cambios del producto (título, categoría, los 2 precios, costo, foto
+    y, opcionalmente, la cantidad exacta de piezas en una o varias sucursales).
 
     Los precios se pueden escribir a mano, o recalcular a partir de un % de
     utilidad sobre el costo (precio = costo × (1 + %/100)); si se da el %,
@@ -1153,6 +1169,10 @@ def editar_producto(
 
     La foto solo se reemplaza si se elige un archivo nuevo; si no, se conserva
     la que ya tenía (no hace falta volver a subirla en cada edición).
+
+    El stock por sucursal es un ajuste (fija la cantidad exacta, igual que
+    "Registrar movimiento" → Ajuste): dejar una sucursal en blanco significa
+    no tocarla.
     """
     costo_valor = parsear_dinero(costo)
     precio_valor = parsear_dinero(precio)
@@ -1171,6 +1191,24 @@ def editar_producto(
             precio_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_menudeo_pct)
         if utilidad_mayoreo_pct is not None:
             precio_mayoreo_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_mayoreo_pct)
+
+    # Ajustes de stock por sucursal: se validan TODOS (solo lecturas) antes de
+    # escribir nada. Sucursal con cantidad en blanco = no se toca.
+    if len(sucursal_stock_id) != len(cantidad_stock):
+        return RedirectResponse("/?error=Datos de sucursales inconsistentes.", status_code=303)
+
+    ajustes_stock = {}  # sucursal_id -> nueva cantidad exacta
+    for suc_id, cant_str in zip(sucursal_stock_id, cantidad_stock):
+        cant_str = cant_str.strip()
+        if not cant_str:
+            continue
+        try:
+            cant_num = int(cant_str)
+        except ValueError:
+            return RedirectResponse("/?error=La cantidad debe ser un número entero.", status_code=303)
+        if cant_num < 0:
+            return RedirectResponse("/?error=La cantidad no puede ser negativa.", status_code=303)
+        ajustes_stock[suc_id] = cant_num
 
     campos_sql = (
         "titulo = :titulo, categoria = :categoria, "
@@ -1194,6 +1232,24 @@ def editar_producto(
 
     with engine.begin() as conn:
         conn.execute(text(f"UPDATE productos SET {campos_sql} WHERE id = :id"), parametros)
+
+        for suc_id, cant_nueva in ajustes_stock.items():
+            actual = conn.execute(text(
+                "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
+            ), {"p": producto_id, "s": suc_id}).scalar()
+            actual = actual if actual is not None else 0
+            delta = cant_nueva - actual
+
+            conn.execute(text(
+                "INSERT INTO stock (producto_id, sucursal_id, cantidad) VALUES (:p, :s, :c) "
+                "ON CONFLICT (producto_id, sucursal_id) "
+                "DO UPDATE SET cantidad = :c, actualizado_en = NOW()"
+            ), {"p": producto_id, "s": suc_id, "c": cant_nueva})
+
+            conn.execute(text(
+                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+                "VALUES (:p, :s, 'ajuste', :delta, 'ajuste manual desde Editar producto')"
+            ), {"p": producto_id, "s": suc_id, "delta": delta})
 
     return RedirectResponse("/", status_code=303)
 
