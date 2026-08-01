@@ -815,14 +815,16 @@ def crear_producto(
     precio_mayoreo: str = Form(""),   # opcional: precio de venta mayoreo
     utilidad_menudeo: str = Form(""),  # opcional: % utilidad -> calcula precio menudeo
     utilidad_mayoreo: str = Form(""),  # opcional: % utilidad -> calcula precio mayoreo
-    sucursal_inicial: str = Form(""),   # opcional: dónde llegó la mercancía
-    cantidad_inicial: str = Form(""),   # opcional: cuántas piezas llegaron
+    sucursal_inicial_id: list[int] = Form(default=[]),  # opcional: dónde llegó la mercancía (una o varias)
+    cantidad_inicial: list[str] = Form(default=[]),      # opcional: cuántas piezas llegaron a cada una
     foto: UploadFile | None = File(None),  # opcional: foto de la prenda
 ):
     """Da de alta un producto (momento de compra) y le crea stock en 0 en cada sucursal.
 
-    Si se indica sucursal + cantidad inicial, además registra esa entrada de una
-    vez (mismo efecto que ir después a "Registrar movimiento" → Entrada).
+    Si se indica cantidad inicial en una o varias sucursales, además registra esa
+    entrada de una vez por cada una (mismo efecto que ir después a "Registrar
+    movimiento" → Entrada), permitiendo repartir una misma llegada de mercancía
+    entre las sucursales (ej. 3 a Tecamachalco y 3 a Prado Norte) desde el alta.
     Los precios (menudeo/mayoreo) son opcionales aquí: se pueden dejar vacíos y
     completar/ajustar después con el botón Editar. En vez de un precio exacto,
     también se puede indicar un % de utilidad sobre el costo (precio = costo ×
@@ -854,12 +856,24 @@ def crear_producto(
         if utilidad_mayoreo_pct is not None:
             precio_mayoreo_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_mayoreo_pct)
 
-    # La cantidad inicial es opcional: si viene vacía o es 0, no se registra entrada.
-    try:
-        cantidad_inicial_num = int(cantidad_inicial.strip()) if cantidad_inicial.strip() else 0
-    except ValueError:
-        cantidad_inicial_num = 0
-    sucursal_inicial_id = int(sucursal_inicial) if sucursal_inicial.strip() else None
+    # Cantidad inicial por sucursal (todas opcionales, se puede repartir entre
+    # varias): se valida todo ANTES de escribir nada. Sucursal sin cantidad = 0.
+    if len(sucursal_inicial_id) != len(cantidad_inicial):
+        return RedirectResponse("/?error=Datos de sucursales inconsistentes.", status_code=303)
+
+    stock_inicial = {}  # sucursal_id -> cantidad, solo las que vinieron con valor > 0
+    for suc_id, cant_str in zip(sucursal_inicial_id, cantidad_inicial):
+        cant_str = cant_str.strip()
+        if not cant_str:
+            continue
+        try:
+            cant_num = int(cant_str)
+        except ValueError:
+            return RedirectResponse("/?error=La cantidad debe ser un número entero.", status_code=303)
+        if cant_num < 0:
+            return RedirectResponse("/?error=La cantidad no puede ser negativa.", status_code=303)
+        if cant_num > 0:
+            stock_inicial[suc_id] = cant_num
 
     # Si se subió una foto (el campo viene vacío si no se eligió archivo), la procesamos.
     foto_bytes, foto_tipo = None, None
@@ -886,23 +900,19 @@ def crear_producto(
             )).scalars().all()
 
             for suc_id in sucursal_ids:
-                # Si esta es la sucursal donde llegó la mercancía, ya nace con
-                # esa cantidad; las demás sucursales nacen en 0, como siempre.
-                cantidad_inicial_suc = (
-                    cantidad_inicial_num if suc_id == sucursal_inicial_id else 0
-                )
+                # Nace con la cantidad repartida a esa sucursal (0 si no le tocó nada).
                 conn.execute(text(
                     "INSERT INTO stock (producto_id, sucursal_id, cantidad) "
                     "VALUES (:producto_id, :sucursal_id, :cantidad)"
-                ), {"producto_id": nuevo_id, "sucursal_id": suc_id, "cantidad": cantidad_inicial_suc})
+                ), {"producto_id": nuevo_id, "sucursal_id": suc_id, "cantidad": stock_inicial.get(suc_id, 0)})
 
-            # Si hubo cantidad inicial, deja rastro en el historial de movimientos
-            # (igual que una entrada normal), para que quede trazable.
-            if sucursal_inicial_id is not None and cantidad_inicial_num > 0:
+            # Deja rastro en el historial de movimientos (igual que una entrada
+            # normal), una por cada sucursal que recibió stock inicial.
+            for suc_id, cant_num in stock_inicial.items():
                 conn.execute(text(
                     "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
                     "VALUES (:p, :s, 'entrada', :delta, 'alta inicial del producto')"
-                ), {"p": nuevo_id, "s": sucursal_inicial_id, "delta": cantidad_inicial_num})
+                ), {"p": nuevo_id, "s": suc_id, "delta": cant_num})
 
     except IntegrityError:
         # Pasa si el SKU ya existe (regla UNIQUE). Avisamos sin romper.
