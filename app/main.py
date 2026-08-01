@@ -167,7 +167,7 @@ def pagina_principal(request: Request, error: str | None = None):
         productos = conn.execute(text(
             "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo, "
             "       (foto IS NOT NULL) AS tiene_foto "
-            "FROM productos WHERE activo = TRUE ORDER BY titulo"
+            "FROM productos WHERE activo = TRUE ORDER BY sku"
         )).mappings().all()
 
         stock_rows = conn.execute(text(
