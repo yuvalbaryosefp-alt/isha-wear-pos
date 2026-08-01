@@ -101,7 +101,7 @@
   <div class="items">
     {% for it in items %}
       <div class="item">
-        <div class="item-titulo">{{ it.titulo }} <span class="item-sku">({{ it.sku }})</span></div>
+        <div class="item-titulo"><span class="item-sku">{{ it.sku }}</span> {{ it.titulo }}</div>
         <div class="item-detalle">
           <span>{{ it.cantidad }} × ${{ "%.2f"|format(it.precio_unitario) }}</span>
           <span class="item-subtotal">${{ "%.2f"|format(it.subtotal) }}</span>
