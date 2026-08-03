@@ -9,6 +9,7 @@ Para correrlo (desde la carpeta del proyecto):
 Luego abrir en el navegador:  http://127.0.0.1:8000
 """
 
+import csv
 import io
 import json
 import os
@@ -231,6 +232,46 @@ def pagina_principal(request: Request, error: str | None = None):
             "movimientos": movimientos,
             "error": error,
         },
+    )
+
+
+@app.get("/inventario/exportar.csv")
+def exportar_inventario():
+    """Descarga el catálogo activo con su stock por sucursal en un CSV, para
+    el contador o para análisis fuera del sistema."""
+    with engine.connect() as conn:
+        sucursales = conn.execute(text(
+            "SELECT id, nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
+        )).mappings().all()
+        productos = conn.execute(text(
+            "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo "
+            "FROM productos WHERE activo = TRUE ORDER BY sku"
+        )).mappings().all()
+        stock_rows = conn.execute(text(
+            "SELECT producto_id, sucursal_id, cantidad FROM stock"
+        )).all()
+
+    stock_map = {(r.producto_id, r.sucursal_id): r.cantidad for r in stock_rows}
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        ["SKU", "Titulo", "Categoria", "Precio menudeo", "Precio mayoreo", "Costo"]
+        + [s["nombre"] for s in sucursales]
+    )
+    for p in productos:
+        writer.writerow([
+            p["sku"], p["titulo"], p["categoria"] or "",
+            p["precio"] if p["precio"] is not None else "",
+            p["precio_mayoreo"] if p["precio_mayoreo"] is not None else "",
+            p["costo"] if p["costo"] is not None else "",
+        ] + [stock_map.get((p["id"], s["id"]), 0) for s in sucursales])
+
+    # BOM al inicio para que Excel en Windows detecte UTF-8 y no arruine acentos.
+    return Response(
+        content="﻿" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=inventario.csv"},
     )
 
 
@@ -1474,6 +1515,60 @@ def corte_caja(request: Request, fecha: str | None = None):
         "num_tickets_hoy": ventas_hoy["num_tickets"],
         "total_ventas_hoy": float(ventas_hoy["total"]),
     })
+
+
+@app.get("/ventas/exportar.csv")
+def exportar_ventas(desde: str | None = None, hasta: str | None = None):
+    """Descarga en CSV el detalle de ventas del período (mismo filtro de
+    fechas que /reportes), para el contador o análisis fuera del sistema."""
+    hoy = date.today()
+    if not desde:
+        desde = hoy.replace(day=1).isoformat()
+    if not hasta:
+        hasta = hoy.isoformat()
+
+    with engine.connect() as conn:
+        filas = conn.execute(text(
+            "SELECT v.creada_en, p.sku, p.titulo, s.nombre AS sucursal, v.canal, "
+            "       v.tipo_precio, v.cantidad, v.precio_unitario, v.costo_unitario, "
+            "       v.descuento_pct, c.nombre AS clienta, v.pedido_id "
+            "FROM ventas v "
+            "JOIN productos p ON p.id = v.producto_id "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
+            "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "WHERE v.creada_en::date BETWEEN :desde AND :hasta "
+            "ORDER BY v.creada_en"
+        ), {"desde": desde, "hasta": hasta}).mappings().all()
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        "Fecha", "SKU", "Producto", "Sucursal", "Canal", "Tipo de precio",
+        "Cantidad", "Precio unitario", "Costo unitario", "Descuento %",
+        "Subtotal", "Ganancia bruta", "Clienta", "Pedido",
+    ])
+    for f in filas:
+        cantidad = f["cantidad"]
+        precio_unitario = float(f["precio_unitario"])
+        costo_unitario = float(f["costo_unitario"] or 0)
+        subtotal = precio_unitario * cantidad
+        ganancia = subtotal - (costo_unitario * cantidad)
+        writer.writerow([
+            f["creada_en"].astimezone(ZONA_CDMX).strftime("%Y-%m-%d %H:%M"),
+            f["sku"], f["titulo"], f["sucursal"],
+            "Boutique" if f["canal"] == "boutique" else "E-commerce",
+            "Menudeo" if f["tipo_precio"] == "menudeo" else "Mayoreo",
+            cantidad, precio_unitario, costo_unitario,
+            float(f["descuento_pct"] or 0), round(subtotal, 2), round(ganancia, 2),
+            f["clienta"] or "", f["pedido_id"] or "",
+        ])
+
+    nombre_archivo = f"ventas_{desde}_a_{hasta}.csv"
+    return Response(
+        content="﻿" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"},
+    )
 
 
 @app.get("/reportes")

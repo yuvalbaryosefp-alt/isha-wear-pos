@@ -63,6 +63,13 @@
         <input type="date" id="hasta" name="hasta" value="{{ hasta }}">
       </div>
       <div><button type="submit">Ver</button></div>
+      <div>
+        <a id="link-exportar-csv" href="/ventas/exportar.csv?desde={{ desde }}&hasta={{ hasta }}"
+           style="display:inline-block; margin-top:0; padding:9px 16px; background:none; color:var(--charcoal);
+                  border:1px solid var(--borde); border-radius:8px; font-size:14px; text-decoration:none">
+          ⬇️ Descargar CSV
+        </a>
+      </div>
     </form>
   </div>
 
@@ -180,4 +187,20 @@
     </div>
   {% endif %}
 
+  <script>
+    // Mantiene el link de descarga sincronizado con las fechas elegidas,
+    // aunque todavía no se haya dado clic en "Ver".
+    (function () {
+      var desdeEl = document.getElementById('desde');
+      var hastaEl = document.getElementById('hasta');
+      var link = document.getElementById('link-exportar-csv');
+
+      function actualizarLink() {
+        link.href = '/ventas/exportar.csv?desde=' + desdeEl.value + '&hasta=' + hastaEl.value;
+      }
+
+      desdeEl.addEventListener('change', actualizarLink);
+      hastaEl.addEventListener('change', actualizarLink);
+    })();
+  </script>
 {% endblock %}
