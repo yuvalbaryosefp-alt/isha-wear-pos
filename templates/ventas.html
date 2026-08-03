@@ -161,12 +161,16 @@
 
   <h2>
     Ventas y estado de pago
-    <button type="submit" form="form-nota" style="margin:0 0 0 10px; padding:6px 14px; font-size:13px">
+    <select form="form-nota" name="copias" style="margin:0 0 0 10px; padding:5px 7px; font-size:13px" title="Cuántas copias imprimir">
+      <option value="1">1 nota</option>
+      <option value="2">2 notas (ej. clienta + tienda)</option>
+    </select>
+    <button type="submit" form="form-nota" style="margin:0 0 0 6px; padding:6px 14px; font-size:13px">
       🖨️ Imprimir nota de pedido
     </button>
   </h2>
   <p style="font-size:12px; color:#777; margin:-8px 0 12px">
-    Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta) y da clic en "Imprimir nota de pedido".
+    Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta), elige cuántas copias y da clic en "Imprimir nota de pedido".
   </p>
 
   {# Form "vacío": las casillas y el botón de arriba se asocian a él vía el atributo form="form-nota",

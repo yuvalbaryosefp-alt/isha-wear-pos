@@ -577,10 +577,14 @@ def eliminar_venta(venta_id: int):
 
 
 @app.get("/ventas/nota")
-def nota_pedido(request: Request, id: list[int] = Query(default=[])):
+def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int = Query(default=1)):
     """Genera una nota de pedido imprimible con varias ventas juntas (ej. las
     10 prendas que se llevó una clienta), seleccionadas con checkboxes en /ventas.
+
+    copias=2 repite la nota completa dos veces (ej. una para la clienta y otra
+    para el archivo de la tienda), con un salto de página entre ambas al imprimir.
     """
+    copias = 2 if copias == 2 else 1
     if not id:
         return RedirectResponse(
             "/ventas?error=Selecciona al menos una venta para imprimir la nota.",
@@ -636,6 +640,7 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[])):
         "saldo": round(total - pagado_total, 2),
         "clienta": clienta_nombre,
         "fecha": datetime.now(ZONA_CDMX),
+        "copias": copias,
     })
 
 

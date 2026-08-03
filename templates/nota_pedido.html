@@ -41,6 +41,15 @@
     .totales .label { text-align: right; font-weight: 600; }
     .totales .valor { text-align: right; font-variant-numeric: tabular-nums; }
     .totales .grande td { font-size: 16px; font-weight: 700; }
+
+    /* Cuando se piden 2 copias (ej. una para la clienta y otra para el
+       archivo de la tienda), cada copia es un bloque idéntico completo.
+       En pantalla se separan con una línea punteada; al imprimir, cada
+       copia (salvo la primera) empieza en una página nueva. */
+    .copia + .copia { margin-top: 26px; padding-top: 22px; border-top: 2px dashed #ccc; }
+    @media print {
+      .copia + .copia { page-break-before: always; margin-top: 0; padding-top: 0; border-top: none; }
+    }
     button.imprimir {
       margin-top: 22px;
       background: #C8347A; color: #fff; border: none;
@@ -83,53 +92,57 @@
   </style>
 </head>
 <body>
-  <img class="logo" src="/static/logo-isha.jpg" alt="Isha Boutique">
-  <div class="direccion">
-    Tecamachalco: Av. de las Fuentes 174, Local 20, Naucalpan, Edomex<br>
-    Prado Norte: Prado Norte 460, Lomas de Chapultepec<br>
-    Tel. 5574185585 · ishaboutique.mx
-  </div>
-
-  <div class="datos">
-    <p><strong>Nota de pedido</strong></p>
-    <p>Fecha: {{ fecha.strftime("%d/%m/%Y %H:%M") }}</p>
-    {% if clienta %}
-      <p>Clienta: {{ clienta }}</p>
-    {% endif %}
-  </div>
-
-  <div class="items">
-    {% for it in items %}
-      <div class="item">
-        <div class="item-titulo"><span class="item-sku">{{ it.sku }}</span> {{ it.titulo }}</div>
-        <div class="item-detalle">
-          <span>{{ it.cantidad }} × ${{ "%.2f"|format(it.precio_unitario) }}</span>
-          <span class="item-subtotal">${{ "%.2f"|format(it.subtotal) }}</span>
-        </div>
+  {% for _ in range(copias) %}
+    <div class="copia">
+      <img class="logo" src="/static/logo-isha.jpg" alt="Isha Boutique">
+      <div class="direccion">
+        Tecamachalco: Av. de las Fuentes 174, Local 20, Naucalpan, Edomex<br>
+        Prado Norte: Prado Norte 460, Lomas de Chapultepec<br>
+        Tel. 5574185585 · ishaboutique.mx
       </div>
-    {% endfor %}
-  </div>
 
-  <table class="totales">
-    <tr class="grande">
-      <td class="label">Total:</td>
-      <td class="valor">${{ "%.2f"|format(total) }}</td>
-    </tr>
-    <tr>
-      <td class="label">Pagado:</td>
-      <td class="valor">${{ "%.2f"|format(pagado) }}</td>
-    </tr>
-    <tr>
-      <td class="label">Saldo pendiente:</td>
-      <td class="valor">${{ "%.2f"|format(saldo) }}</td>
-    </tr>
-  </table>
+      <div class="datos">
+        <p><strong>Nota de pedido</strong></p>
+        <p>Fecha: {{ fecha.strftime("%d/%m/%Y %H:%M") }}</p>
+        {% if clienta %}
+          <p>Clienta: {{ clienta }}</p>
+        {% endif %}
+      </div>
 
-  <div class="politica">
-    NO ACEPTAMOS DEVOLUCIONES.<br>
-    Después de 15 días naturales no se realizan cambios.<br>
-    En vestidos de fiesta o cocktail y prendas con descuento NO HAY CAMBIOS.
-  </div>
+      <div class="items">
+        {% for it in items %}
+          <div class="item">
+            <div class="item-titulo"><span class="item-sku">{{ it.sku }}</span> {{ it.titulo }}</div>
+            <div class="item-detalle">
+              <span>{{ it.cantidad }} × ${{ "%.2f"|format(it.precio_unitario) }}</span>
+              <span class="item-subtotal">${{ "%.2f"|format(it.subtotal) }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <table class="totales">
+        <tr class="grande">
+          <td class="label">Total:</td>
+          <td class="valor">${{ "%.2f"|format(total) }}</td>
+        </tr>
+        <tr>
+          <td class="label">Pagado:</td>
+          <td class="valor">${{ "%.2f"|format(pagado) }}</td>
+        </tr>
+        <tr>
+          <td class="label">Saldo pendiente:</td>
+          <td class="valor">${{ "%.2f"|format(saldo) }}</td>
+        </tr>
+      </table>
+
+      <div class="politica">
+        NO ACEPTAMOS DEVOLUCIONES.<br>
+        Después de 15 días naturales no se realizan cambios.<br>
+        En vestidos de fiesta o cocktail y prendas con descuento NO HAY CAMBIOS.
+      </div>
+    </div>
+  {% endfor %}
 
   <button class="imprimir" onclick="window.print()">Imprimir</button>
 </body>
