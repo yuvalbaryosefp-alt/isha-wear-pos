@@ -1363,6 +1363,70 @@ def _resumen(row) -> dict:
     return fila
 
 
+@app.get("/caja")
+def corte_caja(request: Request, fecha: str | None = None):
+    """Corte de caja diario: cuánto entró en efectivo/tarjeta/transferencia,
+    por sucursal, para cuadrar contra la caja física al cerrar.
+
+    Se basa en `pagos.creado_en` (el momento real en que entró el dinero),
+    no en `ventas.creada_en` — un abono de una venta de ayer que se cobra
+    hoy debe contar en el corte de HOY, no en el de ayer.
+    """
+    if not fecha:
+        fecha = date.today().isoformat()
+
+    with engine.connect() as conn:
+        sucursales = conn.execute(text(
+            "SELECT nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
+        )).scalars().all()
+
+        # AT TIME ZONE convierte el timestamp (guardado en UTC) a hora de
+        # CDMX antes de quedarse solo con la fecha, para no partir el día
+        # a medianoche UTC (que en CDMX cae a media tarde/noche).
+        filas = conn.execute(text(
+            "SELECT s.nombre AS sucursal, p.metodo, SUM(p.monto) AS total, COUNT(*) AS num_pagos "
+            "FROM pagos p "
+            "JOIN ventas v ON v.id = p.venta_id "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
+            "WHERE (p.creado_en AT TIME ZONE 'America/Mexico_City')::date = :fecha "
+            "GROUP BY s.nombre, p.metodo "
+            "ORDER BY s.nombre, p.metodo"
+        ), {"fecha": fecha}).mappings().all()
+
+        # Ventas nuevas registradas hoy (para contexto: no siempre coincide
+        # con lo cobrado hoy si hubo apartados/abonos de otros días).
+        ventas_hoy = conn.execute(text(
+            "SELECT COUNT(DISTINCT COALESCE(pedido_id, 'v' || id::text)) AS num_tickets, "
+            "       COALESCE(SUM(precio_unitario * cantidad), 0) AS total "
+            "FROM ventas "
+            "WHERE (creada_en AT TIME ZONE 'America/Mexico_City')::date = :fecha"
+        ), {"fecha": fecha}).mappings().one()
+
+    # Arma la matriz sucursal × método con los 3 métodos siempre presentes
+    # (aunque no haya habido cobros de ese tipo, para que la tabla no "salte"),
+    # y con TODAS las sucursales activas (aunque no hayan cobrado nada hoy).
+    metodos = ("efectivo", "tarjeta", "transferencia")
+    por_sucursal: dict[str, dict] = {nombre: {m: 0.0 for m in metodos} for nombre in sucursales}
+    for f in filas:
+        por_sucursal.setdefault(f["sucursal"], {m: 0.0 for m in metodos})[f["metodo"]] = float(f["total"])
+
+    filas_tabla = []
+    total_general = 0.0
+    for suc_nombre, montos in por_sucursal.items():
+        total_suc = sum(montos.values())
+        total_general += total_suc
+        filas_tabla.append({"sucursal": suc_nombre, "montos": montos, "total": total_suc})
+
+    return templates.TemplateResponse(request, "caja.html", {
+        "fecha": fecha,
+        "metodos": metodos,
+        "filas": filas_tabla,
+        "total_general": total_general,
+        "num_tickets_hoy": ventas_hoy["num_tickets"],
+        "total_ventas_hoy": float(ventas_hoy["total"]),
+    })
+
+
 @app.get("/reportes")
 def reportes(request: Request, desde: str | None = None, hasta: str | None = None):
     """Reporte de ganancia bruta por período, con desglose por categoría, sucursal y canal."""

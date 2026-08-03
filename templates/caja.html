@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+  <style>
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; }
+    .stat {
+      flex: 1; min-width: 150px; background: #fff;
+      border: 1px solid var(--borde); border-radius: 10px; padding: 16px;
+    }
+    .stat .n { font-size: 22px; font-weight: 700; }
+    .stat .l { font-size: 12px; color: #777; margin-top: 4px; }
+    .stat.destacado { background: var(--charcoal); color: #fff; }
+    .stat.destacado .l { color: #ccc; }
+    .filtro { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+    .filtro > div { flex: 0 0 auto; }
+    .filtro button { margin-top: 0; }
+  </style>
+
+  <h2>Corte de caja</h2>
+  <p style="font-size:13px; color:#777; margin-top:-8px">
+    Cuánto entró en efectivo, tarjeta y transferencia, por sucursal — para cuadrar contra la caja física.
+    Se basa en el momento real en que se cobró cada pago (no en cuándo se registró la venta), así que un
+    abono de una venta de otro día que se cobra hoy sí cuenta en el corte de hoy.
+  </p>
+
+  {# ---------- Filtro de fecha ---------- #}
+  <div class="tarjeta">
+    <form method="get" action="/caja" class="filtro">
+      <div>
+        <label for="fecha">Fecha</label>
+        <input type="date" id="fecha" name="fecha" value="{{ fecha }}">
+      </div>
+      <div><button type="submit">Ver</button></div>
+    </form>
+  </div>
+
+  <h2>Resumen del {{ fecha }}</h2>
+  <div class="stats">
+    <div class="stat destacado">
+      <div class="n">${{ "%.2f"|format(total_general) }}</div>
+      <div class="l">Total cobrado hoy</div>
+    </div>
+    <div class="stat">
+      <div class="n">{{ num_tickets_hoy }}</div>
+      <div class="l">Tickets registrados hoy</div>
+    </div>
+    <div class="stat">
+      <div class="n">${{ "%.2f"|format(total_ventas_hoy) }}</div>
+      <div class="l">Valor de ventas registradas hoy</div>
+    </div>
+  </div>
+  <p style="font-size:12px; color:#777; margin:-8px 0 0">
+    "Cobrado hoy" y "ventas registradas hoy" pueden no coincidir: una venta de hoy con apartado
+    todavía no está cobrada del todo, y un abono de una venta de días anteriores sí cuenta en lo cobrado hoy.
+  </p>
+
+  <h2>Por sucursal y método de pago</h2>
+  {% if filas %}
+    <table>
+      <thead>
+        <tr>
+          <th>Sucursal</th>
+          {% for m in metodos %}
+            <th>{{ m|capitalize }}</th>
+          {% endfor %}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in filas %}
+          <tr>
+            <td>{{ f.sucursal }}</td>
+            {% for m in metodos %}
+              <td class="num">${{ "%.2f"|format(f.montos[m]) }}</td>
+            {% endfor %}
+            <td class="num"><strong>${{ "%.2f"|format(f.total) }}</strong></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">No hay sucursales activas.</div>
+  {% endif %}
+
+{% endblock %}
