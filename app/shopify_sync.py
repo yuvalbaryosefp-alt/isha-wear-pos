@@ -80,6 +80,27 @@ def fijar_cantidad(inventory_item_id: int, location_id: int, cantidad: int) -> N
     r.raise_for_status()
 
 
+def empujar_stock_producto_seguro(producto_id: int) -> None:
+    """Igual que empujar_stock_producto, pero nunca lanza una excepción.
+
+    Pensada para llamarse como BackgroundTask después de responder al
+    navegador: una venta real en la tienda física NUNCA debe fallar ni
+    hacerse más lenta porque Shopify esté caído o lento en ese momento.
+    Si falla, simplemente se queda desincronizado hasta el siguiente cambio
+    de stock de ese producto (no es grave, no es dinero).
+    """
+    try:
+        empujar_stock_producto(producto_id)
+    except Exception as error:
+        print(f"[shopify_sync] No se pudo empujar el stock del producto {producto_id}: {error}")
+
+
+def empujar_stock_productos_seguro(producto_ids) -> None:
+    """Variante para varios productos a la vez (ej. un carrito con varias prendas)."""
+    for producto_id in set(producto_ids):
+        empujar_stock_producto_seguro(producto_id)
+
+
 def empujar_stock_producto(producto_id: int) -> bool:
     """Empuja a Shopify el stock actual (por sucursal) de un producto, si está
     ligado a Shopify. Devuelve True si se empujó, False si el producto no

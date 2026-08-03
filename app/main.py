@@ -19,7 +19,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +30,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
+from app.shopify_sync import empujar_stock_producto_seguro, empujar_stock_productos_seguro
 
 # Ancho máximo de una foto guardada (en píxeles). Suficiente para identificar
 # la prenda en pantalla; evita que fotos de celular (varios MB) inflen la base.
@@ -277,6 +278,7 @@ def exportar_inventario():
 
 @app.post("/movimientos")
 def registrar_movimiento(
+    background_tasks: BackgroundTasks,
     producto_id: int = Form(...),
     tipo: str = Form(...),
     sucursal_id: list[int] = Form(...),
@@ -344,11 +346,13 @@ def registrar_movimiento(
                 "VALUES (:p, :s, :tipo, :delta, :motivo)"
             ), {"p": producto_id, "s": sid, "tipo": tipo, "delta": delta, "motivo": motivo})
 
+    background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/movimientos/traspaso")
 def registrar_traspaso(
+    background_tasks: BackgroundTasks,
     producto_id: int = Form(...),
     sucursal_origen_id: int = Form(...),
     sucursal_destino_id: int = Form(...),
@@ -424,11 +428,13 @@ def registrar_traspaso(
             "VALUES (:p, :s, 'traspaso', :delta, :motivo)"
         ), {"p": producto_id, "s": sucursal_destino_id, "delta": cantidad_num, "motivo": motivo_destino})
 
+    background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/ventas")
 def registrar_venta(
+    background_tasks: BackgroundTasks,
     producto_id: int = Form(...),
     sucursal_id: int = Form(...),
     canal: str = Form(...),
@@ -549,6 +555,7 @@ def registrar_venta(
                 "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
             ), {"v": venta_id, "metodo": metodo_pago, "monto": monto_pagado_num})
 
+    background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
     return RedirectResponse("/ventas", status_code=303)
 
 
@@ -670,7 +677,7 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
 
 
 @app.post("/ventas/{venta_id}/eliminar")
-def eliminar_venta(venta_id: int):
+def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
     """Elimina una venta (ej. una de prueba) y repone el stock que se había
     descontado, para que el inventario no quede descuadrado.
 
@@ -717,12 +724,14 @@ def eliminar_venta(venta_id: int):
         # Borra la venta; sus pagos se eliminan solos (ON DELETE CASCADE).
         conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
 
+    background_tasks.add_task(empujar_stock_producto_seguro, venta["producto_id"])
     return RedirectResponse("/ventas", status_code=303)
 
 
 @app.post("/ventas/{venta_id}/devolucion")
 def registrar_devolucion(
     venta_id: int,
+    background_tasks: BackgroundTasks,
     tipo: str = Form(...),
     motivo: str = Form(""),
 ):
@@ -780,6 +789,7 @@ def registrar_devolucion(
             "INSERT INTO devoluciones (venta_id, tipo, motivo) VALUES (:v, :tipo, :motivo)"
         ), {"v": venta_id, "tipo": tipo, "motivo": motivo_usuario or None})
 
+    background_tasks.add_task(empujar_stock_producto_seguro, venta["producto_id"])
     return RedirectResponse("/ventas", status_code=303)
 
 
@@ -876,6 +886,7 @@ def carrito_venta(request: Request, error: str | None = None):
 
 @app.post("/ventas/carrito")
 def registrar_carrito(
+    background_tasks: BackgroundTasks,
     sucursal_id: int = Form(...),
     canal: str = Form(...),
     cliente_id: str = Form(""),
@@ -1011,6 +1022,10 @@ def registrar_carrito(
                     "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
                 ), {"v": venta_id, "metodo": metodo_pago, "monto": round(pago_este, 2)})
             restante -= pago_este
+
+    background_tasks.add_task(
+        empujar_stock_productos_seguro, [it["producto_id"] for it in items_resueltos]
+    )
 
     # Lleva directo a la nota de pedido imprimible con las ventas recién creadas.
     query = "&".join(f"id={vid}" for vid in venta_ids)
@@ -1400,6 +1415,7 @@ def editar_producto_form(request: Request, producto_id: int):
 @app.post("/productos/{producto_id}/editar")
 def editar_producto(
     producto_id: int,
+    background_tasks: BackgroundTasks,
     titulo: str = Form(...),
     categoria: str = Form(""),
     precio: str = Form(""),
@@ -1502,6 +1518,8 @@ def editar_producto(
                 "VALUES (:p, :s, 'ajuste', :delta, 'ajuste manual desde Editar producto')"
             ), {"p": producto_id, "s": suc_id, "delta": delta})
 
+    if ajustes_stock:
+        background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
     return RedirectResponse("/", status_code=303)
 
 
