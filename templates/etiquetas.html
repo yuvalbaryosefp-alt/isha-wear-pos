@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Etiquetas de producto · Isha Boutique</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #2C2C2C;
+      max-width: 480px;
+      margin: 24px auto;
+      padding: 0 16px 40px;
+    }
+    h1 { font-size: 16px; text-align: center; margin: 0 0 16px; }
+
+    .etiqueta {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0; border-bottom: 1px dashed #ccc;
+    }
+    .etiqueta img { width: 72px; height: 72px; flex: 0 0 auto; }
+    .etiqueta .datos { min-width: 0; }
+    .etiqueta .sku { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; }
+    .etiqueta .titulo { font-size: 11px; color: #555; margin-top: 2px; }
+
+    button.imprimir {
+      display: block; margin: 22px auto 0;
+      background: #C8347A; color: #fff; border: none;
+      padding: 11px 22px; border-radius: 7px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+
+    /* ---- Impresora térmica de tickets (rollo continuo) ----
+       Igual que la nota de pedido: ancho fijo de 80mm, largo automático
+       según cuántas etiquetas se impriman. Si el rollo es de 58mm, cambia
+       las 2 líneas marcadas más abajo. */
+    @page {
+      size: 80mm auto;   /* <- cambiar aquí si tu rollo es de 58mm */
+      margin: 0;
+    }
+    @media print {
+      button.imprimir { display: none; }
+      h1 { display: none; }
+      body {
+        width: 80mm;       /* <- cambiar aquí si tu rollo es de 58mm */
+        max-width: 80mm;
+        margin: 0;
+        padding: 3mm;
+      }
+      .etiqueta { padding: 6px 0; }
+      .etiqueta img { width: 20mm; height: 20mm; }
+      .etiqueta .sku { font-size: 13px; }
+      .etiqueta .titulo { font-size: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Etiquetas de producto ({{ productos|length }})</h1>
+
+  {% for p in productos %}
+    <div class="etiqueta">
+      <img src="/productos/{{ p.id }}/qr" alt="QR {{ p.sku }}">
+      <div class="datos">
+        <div class="sku">{{ p.sku }}</div>
+        <div class="titulo">{{ p.titulo }}</div>
+      </div>
+    </div>
+  {% endfor %}
+
+  <button class="imprimir" onclick="window.print()">Imprimir</button>
+</body>
+</html>

@@ -310,8 +310,17 @@
   {% endif %}
 
   {# ---------- Tabla de productos y su stock por sucursal ---------- #}
-  <h2>Productos y stock</h2>
+  <h2>
+    Productos y stock
+    <button type="submit" form="form-etiquetas" style="margin:0 0 0 10px; padding:6px 14px; font-size:13px">
+      🏷️ Imprimir etiquetas
+    </button>
+  </h2>
   {% if filas %}
+    {# Form "vacío": los checkboxes de cada fila y el botón de arriba se asocian
+       a él vía el atributo form="form-etiquetas" (mismo patrón que la nota de
+       pedido en /ventas), para no anidar un <form> dentro del de "Eliminar". #}
+    <form id="form-etiquetas" method="get" action="/productos/etiquetas"></form>
     <div style="margin-bottom:10px">
       <input type="text" id="buscar_sku_inventario" placeholder="Buscar por SKU..." autocomplete="off"
              style="max-width:260px">
@@ -320,6 +329,7 @@
     <table id="tabla-inventario">
       <thead>
         <tr>
+          <th></th>
           <th>Foto</th>
           <th>Producto</th>
           <th>SKU</th>
@@ -338,6 +348,7 @@
       <tbody>
         {% for f in filas %}
           <tr>
+            <td><input type="checkbox" name="id" value="{{ f.id }}" form="form-etiquetas"></td>
             <td>
               {% if f.tiene_foto %}
                 <img src="/productos/{{ f.id }}/foto" alt="{{ f.titulo }}"
@@ -363,6 +374,8 @@
               &nbsp;·&nbsp;
               <a href="/productos/{{ f.id }}/editar">Editar</a>
               &nbsp;·&nbsp;
+              <a href="/productos/etiquetas?id={{ f.id }}" target="_blank">Etiqueta</a>
+              &nbsp;·&nbsp;
               <form method="post" action="/productos/{{ f.id }}/eliminar" style="display:inline"
                     onsubmit="return confirm('¿Eliminar {{ f.titulo|e }}? Se puede reactivar después desde Productos eliminados.');">
                 <button type="submit" style="margin:0; padding:2px 8px; font-size:13px; background:none; color:#B02A2A; border:1px solid #F5B5B5;">
@@ -387,7 +400,7 @@
           var texto = buscador.value.trim().toUpperCase();
           var visibles = 0;
           filas.forEach(function (tr) {
-            var sku = tr.querySelector('td:nth-child(3)').textContent.trim().toUpperCase();
+            var sku = tr.querySelector('td:nth-child(4)').textContent.trim().toUpperCase();
             var coincide = !texto || sku.indexOf(texto) !== -1;
             tr.style.display = coincide ? '' : 'none';
             if (coincide) visibles++;

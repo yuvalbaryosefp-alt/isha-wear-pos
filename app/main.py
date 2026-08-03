@@ -24,6 +24,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from PIL import Image
+import qrcode
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 
@@ -154,6 +155,15 @@ def procesar_foto(contenido: bytes) -> tuple[bytes, str]:
     buffer = io.BytesIO()
     imagen.save(buffer, format="JPEG", quality=82, optimize=True)
     return buffer.getvalue(), "image/jpeg"
+
+
+def generar_qr_png(texto: str) -> bytes:
+    """Genera un código QR (PNG) con el texto dado — se usa para codificar el
+    SKU en la etiqueta imprimible de cada producto."""
+    imagen = qrcode.make(texto, box_size=8, border=2)
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 @app.get("/")
@@ -1020,6 +1030,45 @@ def foto_producto(producto_id: int):
         raise HTTPException(status_code=404, detail="Este producto no tiene foto.")
 
     return Response(content=bytes(fila["foto"]), media_type=fila["foto_tipo"] or "image/jpeg")
+
+
+@app.get("/productos/{producto_id}/qr")
+def qr_producto(producto_id: int):
+    """Código QR con el SKU del producto, para escanearlo con el celular o un
+    lector y encontrarlo rápido en el mostrador sin teclearlo."""
+    with engine.connect() as conn:
+        sku = conn.execute(text(
+            "SELECT sku FROM productos WHERE id = :id"
+        ), {"id": producto_id}).scalar()
+
+    if sku is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    return Response(content=generar_qr_png(sku), media_type="image/png")
+
+
+@app.get("/productos/etiquetas")
+def etiquetas_productos(request: Request, id: list[int] = Query(default=[])):
+    """Página imprimible con una etiqueta (SKU + QR + título) por cada
+    producto seleccionado, para pegar en la prenda o en el precio.
+    """
+    if not id:
+        return RedirectResponse(
+            "/?error=Selecciona al menos un producto para imprimir etiquetas.",
+            status_code=303,
+        )
+
+    ids_stmt = text(
+        "SELECT id, sku, titulo FROM productos WHERE id IN :ids ORDER BY sku"
+    ).bindparams(bindparam("ids", expanding=True))
+
+    with engine.connect() as conn:
+        productos = conn.execute(ids_stmt, {"ids": id}).mappings().all()
+
+    if not productos:
+        return RedirectResponse("/?error=No se encontraron los productos seleccionados.", status_code=303)
+
+    return templates.TemplateResponse(request, "etiquetas.html", {"productos": productos})
 
 
 @app.get("/productos/{producto_id}/historial")

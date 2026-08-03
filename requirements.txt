@@ -24,3 +24,6 @@ python-multipart
 
 # Procesa las fotos de productos (las achica antes de guardarlas)
 Pillow
+
+# Genera los códigos QR de las etiquetas de producto (por SKU)
+qrcode
