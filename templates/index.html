@@ -172,6 +172,51 @@
       </form>
     </div>
 
+    <h2>Traspaso entre sucursales</h2>
+    <div class="tarjeta">
+      <form method="post" action="/movimientos/traspaso" id="form-traspaso">
+        <div class="fila-form">
+          <div>
+            <label for="tras_sku">SKU del producto</label>
+            <input type="text" id="tras_sku" list="datalist-productos" autocomplete="off" placeholder="Escribe o escanea el SKU">
+            <div id="tras_sku_error" style="color:#B02A2A; font-size:12px; margin-top:3px"></div>
+            <input type="hidden" id="tras_producto_id" name="producto_id">
+            <img id="tras_foto" alt="" style="display:none; width:56px; height:56px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid var(--borde)" onerror="this.style.display='none'">
+          </div>
+          <div>
+            <label for="tras_origen">De (sucursal origen)</label>
+            <select id="tras_origen" name="sucursal_origen_id" required>
+              {% for s in sucursales %}
+                <option value="{{ s.id }}">{{ s.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="tras_destino">A (sucursal destino)</label>
+            <select id="tras_destino" name="sucursal_destino_id" required>
+              {% for s in sucursales %}
+                <option value="{{ s.id }}" {{ "selected" if loop.index0 == 1 else "" }}>{{ s.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="tras_cantidad">Cantidad</label>
+            <input type="number" id="tras_cantidad" name="cantidad" min="1" required>
+          </div>
+        </div>
+        <div class="fila-form">
+          <div>
+            <label for="tras_motivo">Motivo (opcional)</label>
+            <input type="text" id="tras_motivo" name="motivo" placeholder="Ej. se pidió para una clienta">
+          </div>
+        </div>
+        <p style="font-size:12px; color:#777; margin:10px 0 0" id="tras_ayuda">
+          Resta la cantidad en la sucursal de origen y la suma en la de destino, en un solo paso.
+        </p>
+        <button type="submit">Registrar traspaso</button>
+      </form>
+    </div>
+
     <datalist id="datalist-productos">
       {% for p in productos %}
         <option value="{{ p.sku }}">{{ p.titulo }}</option>
@@ -229,6 +274,7 @@
       }
 
       conectarBusquedaSku('mov_sku', 'mov_producto_id', 'mov_sku_error', 'mov_foto');
+      conectarBusquedaSku('tras_sku', 'tras_producto_id', 'tras_sku_error', 'tras_foto');
 
       // No dejar enviar el formulario si el SKU no corresponde a un producto real,
       // ni si no se escribió cantidad en ninguna sucursal.
@@ -245,6 +291,19 @@
         if (!hayCantidad) {
           e.preventDefault();
           document.getElementById('mov_sku_error').textContent = 'Escribe la cantidad de al menos una sucursal.';
+        }
+      });
+
+      // No dejar enviar el traspaso si el SKU no es válido o si origen y destino son iguales.
+      document.getElementById('form-traspaso').addEventListener('submit', function (e) {
+        if (!document.getElementById('tras_producto_id').value) {
+          e.preventDefault();
+          document.getElementById('tras_sku_error').textContent = 'Escribe un SKU válido antes de continuar.';
+          return;
+        }
+        if (document.getElementById('tras_origen').value === document.getElementById('tras_destino').value) {
+          e.preventDefault();
+          document.getElementById('tras_sku_error').textContent = 'Elige sucursales de origen y destino distintas.';
         }
       });
     </script>

@@ -296,6 +296,86 @@ def registrar_movimiento(
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/movimientos/traspaso")
+def registrar_traspaso(
+    producto_id: int = Form(...),
+    sucursal_origen_id: int = Form(...),
+    sucursal_destino_id: int = Form(...),
+    cantidad: str = Form(...),
+    motivo: str = Form(""),
+):
+    """Mueve piezas de una sucursal a otra en una sola operación atómica (resta
+    en origen + suma en destino), en vez de hacer un ajuste y una entrada por
+    separado y arriesgarse a que queden desincronizados.
+    """
+    motivo_usuario = motivo.strip()
+
+    if sucursal_origen_id == sucursal_destino_id:
+        return RedirectResponse("/?error=La sucursal de origen y destino deben ser distintas.", status_code=303)
+
+    try:
+        cantidad_num = int(cantidad.strip())
+    except ValueError:
+        return RedirectResponse("/?error=La cantidad debe ser un número entero.", status_code=303)
+    if cantidad_num <= 0:
+        return RedirectResponse("/?error=La cantidad debe ser mayor a 0.", status_code=303)
+
+    with engine.begin() as conn:
+        nombres = conn.execute(text(
+            "SELECT id, nombre FROM sucursales WHERE id IN (:o, :d)"
+        ), {"o": sucursal_origen_id, "d": sucursal_destino_id}).mappings().all()
+        nombre_por_id = {n["id"]: n["nombre"] for n in nombres}
+        if sucursal_origen_id not in nombre_por_id or sucursal_destino_id not in nombre_por_id:
+            return RedirectResponse("/?error=Sucursal inválida.", status_code=303)
+
+        actual_origen = conn.execute(text(
+            "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
+        ), {"p": producto_id, "s": sucursal_origen_id}).scalar()
+        actual_origen = actual_origen if actual_origen is not None else 0
+
+        if cantidad_num > actual_origen:
+            return RedirectResponse(
+                f"/?error=No hay suficiente stock en {nombre_por_id[sucursal_origen_id]} "
+                f"(hay {actual_origen}, se pidieron {cantidad_num}).",
+                status_code=303,
+            )
+
+        actual_destino = conn.execute(text(
+            "SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s"
+        ), {"p": producto_id, "s": sucursal_destino_id}).scalar()
+        actual_destino = actual_destino if actual_destino is not None else 0
+
+        # Resta en origen.
+        conn.execute(text(
+            "INSERT INTO stock (producto_id, sucursal_id, cantidad) VALUES (:p, :s, :c) "
+            "ON CONFLICT (producto_id, sucursal_id) DO UPDATE SET cantidad = :c, actualizado_en = NOW()"
+        ), {"p": producto_id, "s": sucursal_origen_id, "c": actual_origen - cantidad_num})
+
+        # Suma en destino.
+        conn.execute(text(
+            "INSERT INTO stock (producto_id, sucursal_id, cantidad) VALUES (:p, :s, :c) "
+            "ON CONFLICT (producto_id, sucursal_id) DO UPDATE SET cantidad = :c, actualizado_en = NOW()"
+        ), {"p": producto_id, "s": sucursal_destino_id, "c": actual_destino + cantidad_num})
+
+        motivo_origen = f"Traspaso a {nombre_por_id[sucursal_destino_id]}"
+        motivo_destino = f"Traspaso desde {nombre_por_id[sucursal_origen_id]}"
+        if motivo_usuario:
+            motivo_origen += f" ({motivo_usuario})"
+            motivo_destino += f" ({motivo_usuario})"
+
+        conn.execute(text(
+            "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+            "VALUES (:p, :s, 'traspaso', :delta, :motivo)"
+        ), {"p": producto_id, "s": sucursal_origen_id, "delta": -cantidad_num, "motivo": motivo_origen})
+
+        conn.execute(text(
+            "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+            "VALUES (:p, :s, 'traspaso', :delta, :motivo)"
+        ), {"p": producto_id, "s": sucursal_destino_id, "delta": cantidad_num, "motivo": motivo_destino})
+
+    return RedirectResponse("/", status_code=303)
+
+
 @app.post("/ventas")
 def registrar_venta(
     producto_id: int = Form(...),
