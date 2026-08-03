@@ -572,11 +572,12 @@ def ver_ventas(request: Request, error: str | None = None):
         ventas_rows = conn.execute(text(
             "SELECT v.id, v.creada_en, p.titulo, s.nombre AS sucursal, v.canal, "
             "       v.tipo_precio, c.nombre AS clienta, v.cantidad, v.precio_unitario, "
-            "       (v.precio_unitario * v.cantidad) AS total "
+            "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "LEFT JOIN devoluciones d ON d.venta_id = v.id "
             "ORDER BY v.creada_en DESC LIMIT 200"
         )).mappings().all()
 
@@ -620,6 +621,7 @@ def ver_ventas(request: Request, error: str | None = None):
             "saldo": saldo,
             "estado": estado,
             "metodos": metodos,
+            "devolucion_tipo": v["devolucion_tipo"],
         })
 
     return templates.TemplateResponse(request, "ventas.html", {
@@ -686,6 +688,17 @@ def eliminar_venta(venta_id: int):
         if venta is None:
             return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
 
+        # Si ya se registró como devolución/cambio, el stock ya se repuso por
+        # ese camino — eliminarla también volvería a sumarlo por duplicado.
+        ya_devuelta = conn.execute(text(
+            "SELECT 1 FROM devoluciones WHERE venta_id = :id"
+        ), {"id": venta_id}).scalar()
+        if ya_devuelta:
+            return RedirectResponse(
+                "/ventas?error=Esta venta ya se registró como devolución/cambio; no se puede eliminar aparte.",
+                status_code=303,
+            )
+
         # Repone el stock que se había descontado al vender.
         conn.execute(text(
             "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
@@ -703,6 +716,69 @@ def eliminar_venta(venta_id: int):
 
         # Borra la venta; sus pagos se eliminan solos (ON DELETE CASCADE).
         conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
+
+    return RedirectResponse("/ventas", status_code=303)
+
+
+@app.post("/ventas/{venta_id}/devolucion")
+def registrar_devolucion(
+    venta_id: int,
+    tipo: str = Form(...),
+    motivo: str = Form(""),
+):
+    """Registra una devolución o cambio real de una clienta.
+
+    A diferencia de "Eliminar venta" (pensada para corregir errores de
+    captura), esto NO borra la venta: queda en el historial de que sí se
+    vendió, y se repone el stock y se deja un registro aparte en
+    `devoluciones` de que la prenda regresó. Solo se puede devolver una vez
+    la misma venta.
+    """
+    tipo = tipo.strip()
+    motivo_usuario = motivo.strip()
+
+    if tipo not in ("devolucion", "cambio"):
+        return RedirectResponse("/ventas?error=Tipo de devolución inválido.", status_code=303)
+
+    with engine.begin() as conn:
+        venta = conn.execute(text(
+            "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
+        ), {"id": venta_id}).mappings().one_or_none()
+
+        if venta is None:
+            return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
+
+        ya_devuelta = conn.execute(text(
+            "SELECT 1 FROM devoluciones WHERE venta_id = :id"
+        ), {"id": venta_id}).scalar()
+        if ya_devuelta:
+            return RedirectResponse(
+                "/ventas?error=Esta venta ya se había registrado como devolución/cambio.",
+                status_code=303,
+            )
+
+        # Repone el stock: la prenda física regresó a la sucursal de origen.
+        conn.execute(text(
+            "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
+            "WHERE producto_id = :p AND sucursal_id = :s"
+        ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
+
+        etiqueta = "Devolución" if tipo == "devolucion" else "Cambio"
+        motivo_movimiento = f"{etiqueta} de venta #{venta_id}"
+        if motivo_usuario:
+            motivo_movimiento += f" ({motivo_usuario})"
+
+        conn.execute(text(
+            "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+            "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
+        ), {
+            "p": venta["producto_id"], "s": venta["sucursal_id"],
+            "delta": venta["cantidad"], "motivo": motivo_movimiento,
+        })
+
+        conn.execute(text(
+            "INSERT INTO devoluciones (venta_id, tipo, motivo) VALUES (:v, :tipo, :motivo)"
+        ), {"v": venta_id, "tipo": tipo, "motivo": motivo_usuario or None})
 
     return RedirectResponse("/ventas", status_code=303)
 

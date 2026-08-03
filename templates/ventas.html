@@ -194,6 +194,7 @@
           <th>Estado</th>
           <th>Métodos</th>
           <th>Abonar</th>
+          <th>Devolución/Cambio</th>
           <th></th>
         </tr>
       </thead>
@@ -230,12 +231,33 @@
               {% endif %}
             </td>
             <td>
-              <form method="post" action="/ventas/{{ v.id }}/eliminar"
-                    onsubmit="return confirm('¿Eliminar esta venta de {{ v.titulo|e }}? Se repone el stock. Esta acción no se puede deshacer.');">
-                <button type="submit" style="margin:0; padding:6px 12px; font-size:13px; background:none; color:#B02A2A; border:1px solid #F5B5B5">
-                  Eliminar
-                </button>
-              </form>
+              {% if v.devolucion_tipo %}
+                <span class="badge" style="background:#F0E6D2; color:#8a5a00">
+                  {{ "Devuelta" if v.devolucion_tipo == "devolucion" else "Cambio" }}
+                </span>
+              {% else %}
+                <form method="post" action="/ventas/{{ v.id }}/devolucion" style="display:flex; gap:6px; align-items:center"
+                      onsubmit="return confirm('¿Registrar esta venta de {{ v.titulo|e }} como devuelta/cambiada? Repone el stock, pero la venta queda en el historial (no se borra).');">
+                  <select name="tipo" style="width:105px; padding:5px 7px">
+                    <option value="devolucion">Devolución</option>
+                    <option value="cambio">Cambio</option>
+                  </select>
+                  <input type="text" name="motivo" placeholder="Motivo (opc.)" style="width:100px; padding:5px 7px">
+                  <button type="submit" style="margin:0; padding:6px 10px; font-size:13px; background:none; color:#8a5a00; border:1px solid #e0c080">
+                    ↩ Registrar
+                  </button>
+                </form>
+              {% endif %}
+            </td>
+            <td>
+              {% if not v.devolucion_tipo %}
+                <form method="post" action="/ventas/{{ v.id }}/eliminar"
+                      onsubmit="return confirm('¿Eliminar esta venta de {{ v.titulo|e }}? Se repone el stock. Esta acción no se puede deshacer.');">
+                  <button type="submit" style="margin:0; padding:6px 12px; font-size:13px; background:none; color:#B02A2A; border:1px solid #F5B5B5">
+                    Eliminar
+                  </button>
+                </form>
+              {% endif %}
             </td>
           </tr>
         {% endfor %}

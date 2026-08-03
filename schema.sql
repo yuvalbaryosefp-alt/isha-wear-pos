@@ -179,6 +179,22 @@ CREATE INDEX IF NOT EXISTS idx_pagos_venta ON pagos (venta_id);
 
 
 -- ------------------------------------------------------------
+-- 8. DEVOLUCIONES  (devoluciones/cambios reales de una clienta)
+--    A diferencia de "Eliminar venta" (pensado para borrar errores de
+--    captura), una devolución/cambio NO borra la venta original: queda en
+--    el historial de que sí se vendió, y aquí se registra aparte que la
+--    prenda regresó. Solo puede haber una devolución por venta.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS devoluciones (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    venta_id    BIGINT NOT NULL UNIQUE REFERENCES ventas(id) ON DELETE CASCADE,
+    tipo        TEXT NOT NULL CHECK (tipo IN ('devolucion', 'cambio')),
+    motivo      TEXT,
+    creado_en   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+-- ------------------------------------------------------------
 -- Índices para que las consultas frecuentes sean rápidas
 -- ------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_stock_sucursal        ON stock (sucursal_id);
