@@ -4,10 +4,28 @@
 
   <p><a href="/">&larr; Volver al inicio</a></p>
 
+  {% if error %}
+    <div class="aviso">{{ error }}</div>
+  {% endif %}
+
   <h2>Editar producto</h2>
   <div class="tarjeta">
     <p style="margin:0 0 14px; color:#777; font-size:14px">
       SKU: <strong>{{ producto.sku }}</strong> (no se puede cambiar)
+    </p>
+
+    <p style="margin:0 0 14px; font-size:14px">
+      {% if producto.ligado_shopify %}
+        <span style="color:#2e7d32">✓ Ligado a Shopify</span> — su stock se sincroniza solo.
+      {% else %}
+        <form method="post" action="/productos/{{ producto.id }}/enviar-a-shopify" style="display:inline"
+              onsubmit="return confirm('¿Crear este producto en Shopify? Se crea como borrador (no visible para clientas) para que puedas revisarlo antes de publicarlo.');">
+          <button type="submit" style="margin:0; padding:6px 14px; font-size:13px">
+            🛍️ Enviar a Shopify
+          </button>
+        </form>
+        <span style="color:#777; font-size:12px"> — se crea como borrador, no se publica solo.</span>
+      {% endif %}
     </p>
 
     <form method="post" action="/productos/{{ producto.id }}/editar" enctype="multipart/form-data">

@@ -30,7 +30,13 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
-from app.shopify_sync import empujar_stock_producto_seguro, empujar_stock_productos_seguro
+from app.shopify_sync import (
+    crear_producto_en_shopify,
+    empujar_stock_producto_seguro,
+    empujar_stock_productos_seguro,
+    FaltaPrecioError,
+    ProductoYaLigadoError,
+)
 from app.shopify_webhooks import verificar_firma, procesar_pedido
 
 # Ancho máximo de una foto guardada (en píxeles). Suficiente para identificar
@@ -1414,13 +1420,14 @@ def ver_desactivados(request: Request):
 
 
 @app.get("/productos/{producto_id}/editar")
-def editar_producto_form(request: Request, producto_id: int):
+def editar_producto_form(request: Request, producto_id: int, error: str | None = None):
     """Muestra la pantalla para editar un producto (poner precio de venta, ajustar costo,
     y ajustar la cantidad de piezas en cada sucursal)."""
     with engine.connect() as conn:
         producto = conn.execute(text(
             "SELECT id, sku, titulo, categoria, precio, precio_mayoreo, costo, "
-            "       (foto IS NOT NULL) AS tiene_foto "
+            "       (foto IS NOT NULL) AS tiene_foto, "
+            "       (shopify_product_id IS NOT NULL) AS ligado_shopify "
             "FROM productos WHERE id = :id"
         ), {"id": producto_id}).mappings().one_or_none()
 
@@ -1439,7 +1446,28 @@ def editar_producto_form(request: Request, producto_id: int):
     return templates.TemplateResponse(request, "editar.html", {
         "producto": producto,
         "stock_por_sucursal": stock_por_sucursal,
+        "error": error,
     })
+
+
+@app.post("/productos/{producto_id}/enviar-a-shopify")
+def enviar_producto_a_shopify(producto_id: int):
+    """Crea en Shopify (como borrador) un producto que se dio de alta en
+    isha-wear-pos y todavía no existe allá — botón manual, a propósito NO
+    automático, para no publicar productos a medias (sin foto o precio)."""
+    try:
+        crear_producto_en_shopify(producto_id)
+    except FaltaPrecioError as error:
+        return RedirectResponse(f"/productos/{producto_id}/editar?error={error}", status_code=303)
+    except ProductoYaLigadoError:
+        pass  # ya estaba ligado, no hay nada que hacer — no es un error real
+    except Exception as error:
+        return RedirectResponse(
+            f"/productos/{producto_id}/editar?error=No se pudo enviar a Shopify: {error}",
+            status_code=303,
+        )
+
+    return RedirectResponse(f"/productos/{producto_id}/editar", status_code=303)
 
 
 @app.post("/productos/{producto_id}/editar")

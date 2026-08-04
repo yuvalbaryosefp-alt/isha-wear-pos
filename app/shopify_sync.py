@@ -8,6 +8,7 @@ custom desde 2026): se pide un access token nuevo cada vez que se necesita
 uno y no hay uno vigente en caché (dura 24h).
 """
 
+import base64
 import time
 
 import requests
@@ -125,3 +126,75 @@ def empujar_stock_producto(producto_id: int) -> bool:
         fijar_cantidad(inventory_item_id, fila["shopify_location_id"], fila["cantidad"])
 
     return True
+
+
+class ProductoYaLigadoError(Exception):
+    """Se intentó enviar a Shopify un producto que ya tenía un link."""
+
+
+class FaltaPrecioError(Exception):
+    """No se puede crear el producto en Shopify sin precio de menudeo."""
+
+
+def crear_producto_en_shopify(producto_id: int) -> None:
+    """Crea un producto NUEVO en Shopify (que todavía no existe allá) a partir
+    de los datos ya capturados en isha-wear-pos: título, SKU, categoría,
+    precio y foto (si tiene). Se crea como **borrador** (status='draft') a
+    propósito — no se publica solo, para que se pueda revisar/completar
+    (descripción, más fotos) antes de que la vea una clienta.
+
+    Al terminar, liga el producto (guarda sus IDs de Shopify) y le empuja
+    el stock inicial real, igual que con los productos ligados por SKU.
+    """
+    with engine.connect() as conn:
+        producto = conn.execute(text(
+            "SELECT sku, titulo, categoria, precio, costo, foto, foto_tipo, shopify_product_id "
+            "FROM productos WHERE id = :id"
+        ), {"id": producto_id}).mappings().one_or_none()
+
+    if producto is None:
+        raise ValueError("Producto no encontrado.")
+    if producto["shopify_product_id"] is not None:
+        raise ProductoYaLigadoError("Este producto ya está ligado a Shopify.")
+    if producto["precio"] is None:
+        raise FaltaPrecioError("Ponle un precio de menudeo antes de enviarlo a Shopify.")
+
+    payload = {
+        "product": {
+            "title": producto["titulo"],
+            "vendor": "Isha Wear",
+            "product_type": producto["categoria"] or "",
+            "status": "draft",
+            "variants": [{
+                "sku": producto["sku"],
+                "price": f"{producto['precio']:.2f}",
+                "inventory_management": "shopify",
+            }],
+        }
+    }
+    if producto["foto"] is not None:
+        payload["product"]["images"] = [{"attachment": base64.b64encode(bytes(producto["foto"])).decode()}]
+
+    r = _post_con_reintento(_url("products.json"), payload)
+    r.raise_for_status()
+    creado = r.json()["product"]
+    variante = creado["variants"][0]
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE productos SET shopify_product_id = :pid, shopify_variant_id = :vid, "
+            "shopify_inventory_item_id = :iid WHERE id = :id"
+        ), {
+            "pid": creado["id"], "vid": variante["id"],
+            "iid": variante["inventory_item_id"], "id": producto_id,
+        })
+
+        ubicaciones = conn.execute(text(
+            "SELECT shopify_location_id FROM sucursales "
+            "WHERE activa = TRUE AND shopify_location_id IS NOT NULL"
+        )).scalars().all()
+
+    for location_id in ubicaciones:
+        conectar_inventario(variante["inventory_item_id"], location_id)
+
+    empujar_stock_producto(producto_id)
