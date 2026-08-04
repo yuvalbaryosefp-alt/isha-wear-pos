@@ -18,11 +18,12 @@
   {# ---------- Formulario para dar de alta un producto ---------- #}
   <h2>Agregar producto</h2>
   <div class="tarjeta">
-    <form method="post" action="/productos" enctype="multipart/form-data">
+    <form method="post" action="/productos" enctype="multipart/form-data" id="form-alta">
       <div class="fila-form">
         <div>
           <label for="sku">SKU (código único)</label>
-          <input type="text" id="sku" name="sku" required>
+          <input type="text" id="sku" name="sku" required autocomplete="off">
+          <div id="sku_duplicado_error" style="color:#B02A2A; font-size:12px; margin-top:3px"></div>
         </div>
         <div>
           <label for="titulo">Título</label>
@@ -276,6 +277,32 @@
 
       conectarBusquedaSku('mov_sku', 'mov_producto_id', 'mov_sku_error', 'mov_foto');
       conectarBusquedaSku('tras_sku', 'tras_producto_id', 'tras_sku_error', 'tras_foto');
+
+      // Al dar de alta un producto NUEVO, avisa en vivo si el SKU que se
+      // está escribiendo ya pertenece a otro producto (antes de dar clic en
+      // "Guardar", no hasta que el servidor lo rechace).
+      var skuAltaEl = document.getElementById('sku');
+      var skuAltaErrorEl = document.getElementById('sku_duplicado_error');
+      var skuAltaDuplicado = false;
+
+      function validarSkuNuevo() {
+        var valor = skuAltaEl.value.trim();
+        var existente = valor ? buscarProductoPorSku(valor) : null;
+        skuAltaDuplicado = !!existente;
+        skuAltaErrorEl.textContent = existente
+          ? 'Ese SKU ya está registrado: ' + existente.texto
+          : '';
+      }
+
+      skuAltaEl.addEventListener('input', validarSkuNuevo);
+      skuAltaEl.addEventListener('change', validarSkuNuevo);
+
+      document.getElementById('form-alta').addEventListener('submit', function (e) {
+        validarSkuNuevo();
+        if (skuAltaDuplicado) {
+          e.preventDefault();
+        }
+      });
 
       // No dejar enviar el formulario si el SKU no corresponde a un producto real,
       // ni si no se escribió cantidad en ninguna sucursal.
