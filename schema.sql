@@ -161,6 +161,12 @@ ALTER TABLE ventas ADD COLUMN IF NOT EXISTS descuento_pct NUMERIC(5, 2)
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS pedido_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_ventas_pedido ON ventas (pedido_id);
 
+-- ID del pedido de Shopify que originó esta venta (NULL = venta boutique,
+-- no vino de Shopify). Sirve para no procesar el mismo webhook 2 veces
+-- (Shopify puede reenviar el mismo webhook más de una vez).
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS shopify_order_id BIGINT;
+CREATE INDEX IF NOT EXISTS idx_ventas_shopify_order ON ventas (shopify_order_id);
+
 
 -- ------------------------------------------------------------
 -- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)

@@ -41,7 +41,7 @@ def obtener_token() -> str:
     return _token_cache["valor"]
 
 
-def _headers() -> dict:
+def headers_autenticados() -> dict:
     return {"X-Shopify-Access-Token": obtener_token(), "Content-Type": "application/json"}
 
 
@@ -53,7 +53,7 @@ def _post_con_reintento(url: str, payload: dict) -> requests.Response:
     """POST a la API de Shopify, reintentando con espera si responde 429
     (límite de peticiones) — Shopify indica cuánto esperar en Retry-After."""
     for _ in range(5):
-        r = requests.post(url, json=payload, headers=_headers(), timeout=15)
+        r = requests.post(url, json=payload, headers=headers_autenticados(), timeout=15)
         if r.status_code != 429:
             return r
         time.sleep(float(r.headers.get("Retry-After", 2)))

@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
 from app.shopify_sync import empujar_stock_producto_seguro, empujar_stock_productos_seguro
+from app.shopify_webhooks import verificar_firma, procesar_pedido
 
 # Ancho máximo de una foto guardada (en píxeles). Suficiente para identificar
 # la prenda en pantalla; evita que fotos de celular (varios MB) inflen la base.
@@ -79,6 +80,35 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 # así NO pasan por requiere_login (son públicos) — aceptable porque son solo
 # recursos de marca (logo), no datos del negocio.
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+# Webhooks de Shopify: tienen que ser públicos (Shopify no puede mandar
+# usuario/contraseña), así que van en una sub-app aparte que NO hereda
+# requiere_login (igual que /static). La seguridad aquí es la firma HMAC
+# que se verifica en cada request (ver app/shopify_webhooks.py) — sin
+# firma válida, se rechaza antes de tocar la base de datos.
+webhooks_app = FastAPI()
+
+
+@webhooks_app.post("/shopify/orders")
+async def recibir_pedido_shopify(request: Request):
+    cuerpo_crudo = await request.body()
+    firma = request.headers.get("X-Shopify-Hmac-Sha256")
+
+    if not verificar_firma(cuerpo_crudo, firma):
+        raise HTTPException(status_code=401, detail="Firma inválida.")
+
+    try:
+        procesar_pedido(json.loads(cuerpo_crudo))
+    except Exception as error:
+        # Devolver error (no 200) hace que Shopify reintente el webhook más
+        # tarde — mejor eso que tragarnos el fallo y perder la venta.
+        print(f"[webhooks] Error procesando pedido de Shopify: {error}")
+        raise HTTPException(status_code=500, detail="No se pudo procesar el pedido.")
+
+    return {"ok": True}
+
+
+app.mount("/webhooks", webhooks_app)
 
 # Postgres guarda las fechas en UTC. La convertimos a hora de Ciudad de México
 # solo para MOSTRARLA (en la base siempre se queda en UTC, que es lo correcto).
