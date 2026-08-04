@@ -24,7 +24,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from PIL import Image
+from PIL import Image, ImageOps
 import qrcode
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
@@ -184,6 +184,11 @@ def procesar_foto(contenido: bytes) -> tuple[bytes, str]:
     a un ancho máximo y comprimida como JPEG, para no inflar la base de datos.
     """
     imagen = Image.open(io.BytesIO(contenido))
+    # Aplica la rotación real que indica el EXIF (celulares guardan la foto
+    # "acostada" tal como la capturó el sensor + una bandera de rotación; si
+    # no se aplica aquí, se guarda acostada de verdad y ya no hay forma de
+    # corregirla después, porque el JPEG final no lleva ese EXIF).
+    imagen = ImageOps.exif_transpose(imagen)
     imagen = imagen.convert("RGB")  # normaliza PNG/CMYK/transparencias a RGB plano
 
     if imagen.width > FOTO_ANCHO_MAX:
