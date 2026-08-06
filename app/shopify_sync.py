@@ -198,3 +198,59 @@ def crear_producto_en_shopify(producto_id: int) -> None:
         conectar_inventario(variante["inventory_item_id"], location_id)
 
     empujar_stock_producto(producto_id)
+
+
+def limpiar_titulo_y_foto(producto_id: int) -> str:
+    """Para un producto YA ligado a Shopify (normalmente de los que se
+    ligaron por SKU, no por el botón manual): corrige el título en Shopify
+    para que coincida con el nuestro (el catálogo viejo de Shopify tiene un
+    bug de códigos numéricos pegados al título) y, si Shopify no tiene
+    ninguna foto todavía, le sube la que tengamos en isha-wear-pos.
+
+    Devuelve una palabra describiendo qué se hizo, para reportar en lote:
+    "titulo+foto", "titulo", "foto", o "sin_cambios".
+    """
+    with engine.connect() as conn:
+        producto = conn.execute(text(
+            "SELECT titulo, foto, shopify_product_id FROM productos WHERE id = :id"
+        ), {"id": producto_id}).mappings().one_or_none()
+
+    if producto is None or producto["shopify_product_id"] is None:
+        return "sin_cambios"
+
+    shopify_id = producto["shopify_product_id"]
+    r = requests.get(_url(f"products/{shopify_id}.json"), headers=headers_autenticados(), timeout=15)
+    r.raise_for_status()
+    actual = r.json()["product"]
+
+    cambios = {}
+    hizo_titulo = actual["title"] != producto["titulo"]
+    if hizo_titulo:
+        cambios["title"] = producto["titulo"]
+
+    hizo_foto = not actual.get("images") and producto["foto"] is not None
+    if hizo_foto:
+        cambios["images"] = [{"attachment": base64.b64encode(bytes(producto["foto"])).decode()}]
+
+    if not cambios:
+        return "sin_cambios"
+
+    cambios["id"] = shopify_id
+    r2 = _post_con_reintento_put(_url(f"products/{shopify_id}.json"), cambios)
+    r2.raise_for_status()
+
+    if hizo_titulo and hizo_foto:
+        return "titulo+foto"
+    return "titulo" if hizo_titulo else "foto"
+
+
+def _post_con_reintento_put(url: str, payload: dict) -> requests.Response:
+    """Igual que _post_con_reintento pero con PUT (actualizar un recurso
+    existente en vez de crear uno nuevo)."""
+    for _ in range(5):
+        r = requests.put(url, json={"product": payload}, headers=headers_autenticados(), timeout=15)
+        if r.status_code != 429:
+            return r
+        time.sleep(float(r.headers.get("Retry-After", 2)))
+    r.raise_for_status()
+    return r
