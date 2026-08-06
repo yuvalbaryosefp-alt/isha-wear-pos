@@ -102,7 +102,7 @@
       </div>
 
       <div class="datos">
-        <p><strong>Nota de pedido</strong></p>
+        <p><strong>Nota de pedido{% if numero_nota %} #{{ numero_nota }}{% endif %}</strong></p>
         <p>Fecha: {{ fecha.strftime("%d/%m/%Y %H:%M") }}</p>
         {% if clienta %}
           <p>Clienta: {{ clienta }}</p>

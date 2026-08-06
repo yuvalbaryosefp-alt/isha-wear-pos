@@ -577,16 +577,18 @@ def registrar_venta(
 
         # 3) Guarda el registro financiero (cliente_id puede ser None).
         # pedido_id propio: una venta individual es un ticket de una sola línea.
+        numero_nota = conn.execute(text("SELECT nextval('ventas_numero_nota_seq')")).scalar_one()
         venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-            " costo_unitario, cliente_id, descuento_pct, pedido_id) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido) "
+            " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero) "
             "RETURNING id"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
             "cliente": cliente_id_num, "descuento": descuento_pct, "pedido": str(uuid.uuid4()),
+            "numero": numero_nota,
         }).scalar_one()
 
         # 4) Registra el pago inicial (ya validado arriba). Si el monto es 0,
@@ -853,7 +855,7 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
 
     with engine.connect() as conn:
         filas = conn.execute(ids_stmt(
-            "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta "
+            "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, v.numero_nota "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
@@ -876,11 +878,13 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
     total = 0.0
     pagado_total = 0.0
     clientas_distintas = set()
+    numeros_distintos = set()
     for f in filas:
         subtotal = float(f["precio_unitario"]) * f["cantidad"]
         total += subtotal
         pagado_total += pagado_por_venta.get(f["id"], 0.0)
         clientas_distintas.add(f["clienta"])
+        numeros_distintos.add(f["numero_nota"])
         items.append({
             "titulo": f["titulo"], "sku": f["sku"],
             "cantidad": f["cantidad"], "precio_unitario": float(f["precio_unitario"]),
@@ -891,12 +895,17 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
     # nombre; si se mezclan clientas distintas (o ninguna), se deja en blanco.
     clienta_nombre = next(iter(clientas_distintas)) if len(clientas_distintas) == 1 else None
 
+    # Igual con el folio: si se seleccionaron ventas de tickets distintos a
+    # mano (ej. desde /ventas), no hay un solo número que aplique a todas.
+    numero_nota = next(iter(numeros_distintos)) if len(numeros_distintos) == 1 else None
+
     return templates.TemplateResponse(request, "nota_pedido.html", {
         "items": items,
         "total": total,
         "pagado": pagado_total,
         "saldo": round(total - pagado_total, 2),
         "clienta": clienta_nombre,
+        "numero_nota": numero_nota,
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
     })
@@ -1022,8 +1031,10 @@ def registrar_carrito(
 
         # --- Paso 3: ya validado todo; ahora sí se descuenta stock y se crea cada venta. ---
         # Un solo pedido_id compartido: todas las prendas del carrito son
-        # UN ticket (para el ticket promedio), no uno por prenda.
+        # UN ticket (para el ticket promedio), no uno por prenda. Mismo folio
+        # de nota para todas las líneas, por la misma razón.
         pedido_id = str(uuid.uuid4())
+        numero_nota = conn.execute(text("SELECT nextval('ventas_numero_nota_seq')")).scalar_one()
         venta_ids = []
         for it in items_resueltos:
             conn.execute(text(
@@ -1042,13 +1053,14 @@ def registrar_carrito(
             venta_id = conn.execute(text(
                 "INSERT INTO ventas "
                 "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-                " costo_unitario, cliente_id, descuento_pct, pedido_id) "
-                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido) "
+                " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota) "
+                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero) "
                 "RETURNING id"
             ), {
                 "p": it["producto_id"], "s": sucursal_id, "canal": canal, "tipo_precio": it["tipo_precio"],
                 "cant": it["cantidad"], "precio": it["precio_unitario"], "costo": it["costo_unitario"],
                 "cliente": cliente_id_num, "descuento": it["descuento_pct"], "pedido": pedido_id,
+                "numero": numero_nota,
             }).scalar_one()
             venta_ids.append(venta_id)
 

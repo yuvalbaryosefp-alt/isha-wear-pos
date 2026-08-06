@@ -167,6 +167,12 @@ CREATE INDEX IF NOT EXISTS idx_ventas_pedido ON ventas (pedido_id);
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS shopify_order_id BIGINT;
 CREATE INDEX IF NOT EXISTS idx_ventas_shopify_order ON ventas (shopify_order_id);
 
+-- Folio consecutivo de la nota impresa (uno por ticket/pedido_id, no por
+-- línea). Empieza en 1 la primera vez que se usa; las ventas de antes de
+-- este cambio se quedan en NULL (no se renumeran).
+CREATE SEQUENCE IF NOT EXISTS ventas_numero_nota_seq START 1;
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS numero_nota INTEGER;
+
 
 -- ------------------------------------------------------------
 -- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)
