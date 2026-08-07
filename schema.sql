@@ -170,8 +170,17 @@ CREATE INDEX IF NOT EXISTS idx_ventas_shopify_order ON ventas (shopify_order_id)
 -- Folio consecutivo de la nota impresa (uno por ticket/pedido_id, no por
 -- línea). Empieza en 1 la primera vez que se usa; las ventas de antes de
 -- este cambio se quedan en NULL (no se renumeran).
-CREATE SEQUENCE IF NOT EXISTS ventas_numero_nota_seq START 1;
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS numero_nota INTEGER;
+
+-- Lleva el último folio usado POR SUCURSAL: cada sede numera sus notas por
+-- separado (Tecamachalco y Prado Norte cada una empieza en su propio #1),
+-- en vez de compartir un solo contador. Un UPSERT con ON CONFLICT sobre
+-- esta tabla incrementa el número de forma atómica (sin choques si dos
+-- ventas se registran al mismo tiempo).
+CREATE TABLE IF NOT EXISTS notas_folio (
+    sucursal_id  BIGINT PRIMARY KEY REFERENCES sucursales(id) ON DELETE CASCADE,
+    ultimo_numero INTEGER NOT NULL DEFAULT 0
+);
 
 
 -- ------------------------------------------------------------

@@ -131,6 +131,17 @@ def parsear_dinero(texto: str) -> float | None:
         return None
 
 
+def siguiente_numero_nota(conn, sucursal_id: int) -> int:
+    """Folio consecutivo de la nota, llevado POR SUCURSAL (cada sede tiene su
+    propio contador, empezando en 1). El UPSERT es atómico: si dos ventas de
+    la misma sucursal se registran al mismo tiempo, no se repite el número."""
+    return conn.execute(text(
+        "INSERT INTO notas_folio (sucursal_id, ultimo_numero) VALUES (:s, 1) "
+        "ON CONFLICT (sucursal_id) DO UPDATE SET ultimo_numero = notas_folio.ultimo_numero + 1 "
+        "RETURNING ultimo_numero"
+    ), {"s": sucursal_id}).scalar_one()
+
+
 def calcular_precio_desde_utilidad(costo, utilidad_pct) -> float | None:
     """precio = costo × (1 + utilidad_pct/100). None si falta costo o utilidad."""
     if costo is None or utilidad_pct is None:
@@ -577,7 +588,7 @@ def registrar_venta(
 
         # 3) Guarda el registro financiero (cliente_id puede ser None).
         # pedido_id propio: una venta individual es un ticket de una sola línea.
-        numero_nota = conn.execute(text("SELECT nextval('ventas_numero_nota_seq')")).scalar_one()
+        numero_nota = siguiente_numero_nota(conn, sucursal_id)
         venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
@@ -855,9 +866,11 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
 
     with engine.connect() as conn:
         filas = conn.execute(ids_stmt(
-            "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, v.numero_nota "
+            "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, "
+            "       v.numero_nota, s.nombre AS sucursal "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
             "WHERE v.id IN :ids ORDER BY v.id"
         ), {"ids": id}).mappings().all()
@@ -879,12 +892,14 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
     pagado_total = 0.0
     clientas_distintas = set()
     numeros_distintos = set()
+    sucursales_distintas = set()
     for f in filas:
         subtotal = float(f["precio_unitario"]) * f["cantidad"]
         total += subtotal
         pagado_total += pagado_por_venta.get(f["id"], 0.0)
         clientas_distintas.add(f["clienta"])
         numeros_distintos.add(f["numero_nota"])
+        sucursales_distintas.add(f["sucursal"])
         items.append({
             "titulo": f["titulo"], "sku": f["sku"],
             "cantidad": f["cantidad"], "precio_unitario": float(f["precio_unitario"]),
@@ -899,6 +914,10 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
     # mano (ej. desde /ventas), no hay un solo número que aplique a todas.
     numero_nota = next(iter(numeros_distintos)) if len(numeros_distintos) == 1 else None
 
+    # El folio se repite entre sucursales (cada una tiene su propio #1, #2...),
+    # así que en la nota se muestra junto con la sede para no confundirlos.
+    sucursal_nombre = next(iter(sucursales_distintas)) if len(sucursales_distintas) == 1 else None
+
     return templates.TemplateResponse(request, "nota_pedido.html", {
         "items": items,
         "total": total,
@@ -906,6 +925,7 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
         "saldo": round(total - pagado_total, 2),
         "clienta": clienta_nombre,
         "numero_nota": numero_nota,
+        "sucursal": sucursal_nombre,
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
     })
@@ -1034,7 +1054,7 @@ def registrar_carrito(
         # UN ticket (para el ticket promedio), no uno por prenda. Mismo folio
         # de nota para todas las líneas, por la misma razón.
         pedido_id = str(uuid.uuid4())
-        numero_nota = conn.execute(text("SELECT nextval('ventas_numero_nota_seq')")).scalar_one()
+        numero_nota = siguiente_numero_nota(conn, sucursal_id)
         venta_ids = []
         for it in items_resueltos:
             conn.execute(text(
