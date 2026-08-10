@@ -1424,6 +1424,24 @@ def crear_clienta(
     return RedirectResponse("/clientas", status_code=303)
 
 
+@app.post("/clientas/{cliente_id}/eliminar")
+def eliminar_clienta(cliente_id: int):
+    """Borra una clienta (ej. un registro duplicado o de prueba).
+
+    Sus ventas pasadas NO se borran ni se pierden: solo quedan sin clienta
+    asociada (ventas.cliente_id se pone en NULL, por el ON DELETE SET NULL
+    de la base de datos), igual que una venta sin clienta desde el inicio.
+    """
+    with engine.begin() as conn:
+        borrada = conn.execute(text(
+            "DELETE FROM clientas WHERE id = :id RETURNING id"
+        ), {"id": cliente_id}).scalar()
+
+    if borrada is None:
+        return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
+    return RedirectResponse("/clientas", status_code=303)
+
+
 @app.get("/clientas/{cliente_id}")
 def ver_clienta(request: Request, cliente_id: int):
     """Ficha de una clienta: sus datos y su historial completo de compras."""

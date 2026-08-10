@@ -9,7 +9,13 @@
     <p style="margin:0 0 4px"><strong>Teléfono:</strong> {{ clienta.telefono or "—" }}</p>
     <p style="margin:0 0 4px"><strong>Email:</strong> {{ clienta.email or "—" }}</p>
     <p style="margin:0 0 4px"><strong>Cumpleaños:</strong> {{ clienta.cumpleanos.strftime("%d/%m/%Y") if clienta.cumpleanos else "—" }}</p>
-    <p style="margin:0"><strong>Notas:</strong> {{ clienta.notas or "—" }}</p>
+    <p style="margin:0 0 14px"><strong>Notas:</strong> {{ clienta.notas or "—" }}</p>
+    <form method="post" action="/clientas/{{ clienta.id }}/eliminar"
+          onsubmit="return confirm('¿Eliminar a {{ clienta.nombre|e }}? Sus compras pasadas se quedan en el historial, solo se les quita el nombre. Esta acción no se puede deshacer.');">
+      <button type="submit" style="margin:0; padding:6px 14px; font-size:13px; background:none; color:#B02A2A; border:1px solid #F5B5B5">
+        Eliminar clienta
+      </button>
+    </form>
   </div>
 
   <h2>Historial de compras</h2>
