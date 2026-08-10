@@ -154,7 +154,7 @@
           var campo = selTipo.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
           var valor = producto[campo];
           if (valor !== null && valor !== undefined) {
-            inpPrecio.value = parseFloat(valor).toFixed(2);
+            inpPrecio.value = Math.round(parseFloat(valor));
           }
           fotoEl.src = '/productos/' + producto.id + '/foto';
           fotoEl.style.display = '';
@@ -183,8 +183,10 @@
       if (isNaN(precio) || isNaN(cantidad)) {
         subtotalEl.textContent = '—';
       } else {
-        var precioConDescuento = isNaN(descuento) ? precio : precio * (1 - descuento / 100);
-        subtotalEl.textContent = '$' + (precioConDescuento * cantidad).toFixed(2);
+        // Redondeado a pesos enteros: así coincide con lo que de verdad se
+        // cobra (el backend también redondea el precio con descuento).
+        var precioConDescuento = isNaN(descuento) ? precio : Math.round(precio * (1 - descuento / 100));
+        subtotalEl.textContent = '$' + (precioConDescuento * cantidad).toFixed(0);
       }
       recalcularTotal();
     }
@@ -196,11 +198,11 @@
         var cantidad = parseInt(tr.querySelector('.inp-cantidad').value, 10);
         var descuento = parseFloat(tr.querySelector('.inp-descuento').value);
         if (!isNaN(precio) && !isNaN(cantidad)) {
-          var precioConDescuento = isNaN(descuento) ? precio : precio * (1 - descuento / 100);
+          var precioConDescuento = isNaN(descuento) ? precio : Math.round(precio * (1 - descuento / 100));
           total += precioConDescuento * cantidad;
         }
       });
-      document.getElementById('total-carrito').textContent = '$' + total.toFixed(2);
+      document.getElementById('total-carrito').textContent = '$' + total.toFixed(0);
     }
 
     // Arranca el carrito con una fila lista para usarse.

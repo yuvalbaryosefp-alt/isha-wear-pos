@@ -143,10 +143,11 @@ def siguiente_numero_nota(conn, sucursal_id: int) -> int:
 
 
 def calcular_precio_desde_utilidad(costo, utilidad_pct) -> float | None:
-    """precio = costo × (1 + utilidad_pct/100). None si falta costo o utilidad."""
+    """precio = costo × (1 + utilidad_pct/100), redondeado a pesos enteros
+    (en la tienda no se manejan centavos). None si falta costo o utilidad."""
     if costo is None or utilidad_pct is None:
         return None
-    return round(float(costo) * (1 + utilidad_pct / 100), 2)
+    return round(float(costo) * (1 + utilidad_pct / 100))
 
 
 def resolver_precio_venta(producto_row, tipo_precio: str, precio_indicado, descuento_pct) -> float | None:
@@ -159,7 +160,8 @@ def resolver_precio_venta(producto_row, tipo_precio: str, precio_indicado, descu
     if precio_unitario is None:
         return None
     if descuento_pct:
-        precio_unitario = round(float(precio_unitario) * (1 - descuento_pct / 100), 2)
+        # Redondeado a pesos enteros: un descuento no debe reintroducir centavos.
+        precio_unitario = round(float(precio_unitario) * (1 - descuento_pct / 100))
     return float(precio_unitario)
 
 
@@ -1156,6 +1158,13 @@ def crear_producto(
         if utilidad_mayoreo_pct is not None:
             precio_mayoreo_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_mayoreo_pct)
 
+    # En la tienda no se manejan centavos: redondea a pesos enteros, venga el
+    # precio del % de utilidad de arriba o escrito directo a mano.
+    if precio_valor is not None:
+        precio_valor = round(precio_valor)
+    if precio_mayoreo_valor is not None:
+        precio_mayoreo_valor = round(precio_mayoreo_valor)
+
     # Cantidad inicial por sucursal (todas opcionales, se puede repartir entre
     # varias): se valida todo ANTES de escribir nada. Sucursal sin cantidad = 0.
     if len(sucursal_inicial_id) != len(cantidad_inicial):
@@ -1553,6 +1562,13 @@ def editar_producto(
             precio_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_menudeo_pct)
         if utilidad_mayoreo_pct is not None:
             precio_mayoreo_valor = calcular_precio_desde_utilidad(costo_valor, utilidad_mayoreo_pct)
+
+    # En la tienda no se manejan centavos: redondea a pesos enteros, venga el
+    # precio del % de utilidad de arriba o escrito directo a mano.
+    if precio_valor is not None:
+        precio_valor = round(precio_valor)
+    if precio_mayoreo_valor is not None:
+        precio_mayoreo_valor = round(precio_mayoreo_valor)
 
     # Ajustes de stock por sucursal: se validan TODOS (solo lecturas) antes de
     # escribir nada. Sucursal con cantidad en blanco = no se toca.

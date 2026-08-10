@@ -134,7 +134,7 @@
           var atributo = tipoEl.value === 'mayoreo' ? 'precioMayoreo' : 'precio';
           var valor = producto[atributo];
           if (valor !== null && valor !== undefined) {
-            precioEl.value = parseFloat(valor).toFixed(2);
+            precioEl.value = Math.round(parseFloat(valor));
           }
           fotoEl.src = '/productos/' + producto.id + '/foto';
           fotoEl.style.display = '';
