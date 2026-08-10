@@ -10,10 +10,6 @@
 
   <h2>Editar producto</h2>
   <div class="tarjeta">
-    <p style="margin:0 0 14px; color:#777; font-size:14px">
-      SKU: <strong>{{ producto.sku }}</strong> (no se puede cambiar)
-    </p>
-
     <p style="margin:0 0 14px; font-size:14px">
       {% if producto.ligado_shopify %}
         <span style="color:#2e7d32">✓ Ligado a Shopify</span> — su stock se sincroniza solo.
@@ -30,6 +26,13 @@
 
     <form method="post" action="/productos/{{ producto.id }}/editar" enctype="multipart/form-data">
       <div class="fila-form">
+        <div>
+          <label for="sku">SKU (código único)</label>
+          <input type="text" id="sku" name="sku" value="{{ producto.sku }}" required autocomplete="off">
+          <div style="color:#777; font-size:12px; margin-top:3px">
+            Ojo: si ya imprimiste etiquetas/QR con el SKU anterior, dejan de coincidir.
+          </div>
+        </div>
         <div>
           <label for="titulo">Título</label>
           <input type="text" id="titulo" name="titulo" value="{{ producto.titulo }}" required>

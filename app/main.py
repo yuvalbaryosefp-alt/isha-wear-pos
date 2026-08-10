@@ -1520,6 +1520,7 @@ def enviar_producto_a_shopify(producto_id: int):
 def editar_producto(
     producto_id: int,
     background_tasks: BackgroundTasks,
+    sku: str = Form(...),
     titulo: str = Form(...),
     categoria: str = Form(""),
     precio: str = Form(""),
@@ -1545,6 +1546,13 @@ def editar_producto(
     "Registrar movimiento" → Ajuste): dejar una sucursal en blanco significa
     no tocarla.
     """
+    sku = sku.strip()
+    if not sku:
+        return RedirectResponse(
+            f"/productos/{producto_id}/editar?error=El SKU no puede quedar vacío.",
+            status_code=303,
+        )
+
     costo_valor = parsear_dinero(costo)
     precio_valor = parsear_dinero(precio)
     precio_mayoreo_valor = parsear_dinero(precio_mayoreo)
@@ -1589,11 +1597,12 @@ def editar_producto(
         ajustes_stock[suc_id] = cant_num
 
     campos_sql = (
-        "titulo = :titulo, categoria = :categoria, "
+        "sku = :sku, titulo = :titulo, categoria = :categoria, "
         "precio = :precio, precio_mayoreo = :precio_mayoreo, "
         "costo = :costo, actualizado_en = NOW()"
     )
     parametros = {
+        "sku": sku,
         "titulo": titulo.strip(),
         "categoria": categoria.strip() or None,
         "precio": precio_valor,
@@ -1609,6 +1618,17 @@ def editar_producto(
         parametros["foto_tipo"] = foto_tipo
 
     with engine.begin() as conn:
+        # El SKU es único: si otro producto ya lo usa, se avisa en vez de
+        # dejar que la restricción de la base de datos truene feo.
+        choque = conn.execute(text(
+            "SELECT titulo FROM productos WHERE sku = :sku AND id != :id"
+        ), {"sku": sku, "id": producto_id}).scalar()
+        if choque is not None:
+            return RedirectResponse(
+                f"/productos/{producto_id}/editar?error=Ese SKU ya lo usa otro producto: {choque}",
+                status_code=303,
+            )
+
         conn.execute(text(f"UPDATE productos SET {campos_sql} WHERE id = :id"), parametros)
 
         for suc_id, cant_nueva in ajustes_stock.items():
