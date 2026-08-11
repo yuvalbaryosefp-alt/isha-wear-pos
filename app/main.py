@@ -1389,6 +1389,21 @@ def ver_clientas(request: Request, error: str | None = None):
             "ORDER BY c.nombre"
         )).mappings().all()
 
+        # Clientas con saldo pendiente: suma, por venta, lo que falta de pagar
+        # (precio × cantidad menos lo ya abonado), y se queda solo con las que
+        # todavía deben algo.
+        con_saldo = conn.execute(text(
+            "SELECT c.id, c.nombre, c.telefono, "
+            "       SUM((v.precio_unitario * v.cantidad) - COALESCE(pv.pagado, 0)) AS saldo_pendiente "
+            "FROM clientas c "
+            "JOIN ventas v ON v.cliente_id = c.id "
+            "LEFT JOIN (SELECT venta_id, SUM(monto) AS pagado FROM pagos GROUP BY venta_id) pv "
+            "       ON pv.venta_id = v.id "
+            "WHERE (v.precio_unitario * v.cantidad) > COALESCE(pv.pagado, 0) "
+            "GROUP BY c.id, c.nombre, c.telefono "
+            "ORDER BY saldo_pendiente DESC"
+        )).mappings().all()
+
     # Convierte la fecha de última compra a hora de CDMX y calcula días sin comprar.
     ahora = datetime.now(ZONA_CDMX)
     clientas = []
@@ -1418,6 +1433,7 @@ def ver_clientas(request: Request, error: str | None = None):
         "clientas": clientas,
         "no_han_vuelto": no_han_vuelto,
         "top_clientas": top_clientas,
+        "con_saldo": con_saldo,
         "dias_alerta": DIAS_SIN_COMPRAR_ALERTA,
         "error": error,
     })
@@ -1443,6 +1459,53 @@ def crear_clienta(
             "cumpleanos": cumpleanos.strip() or None,
             "notas": notas.strip() or None,
         })
+    return RedirectResponse("/clientas", status_code=303)
+
+
+@app.post("/clientas/{cliente_id}/abonar")
+def abonar_saldo_clienta(cliente_id: int, monto: str = Form(...), metodo: str = Form("efectivo")):
+    """Aplica un pago de la clienta a su saldo pendiente TOTAL, repartido
+    entre sus ventas con saldo (la más vieja primero) hasta agotarlo — igual
+    que pagar varias cosas con un solo billete, pero entre visitas distintas
+    en vez de en un solo carrito."""
+    metodo = metodo.strip()
+    if metodo not in ("efectivo", "tarjeta", "transferencia"):
+        return RedirectResponse("/clientas?error=Método de pago inválido.", status_code=303)
+
+    monto_num = parsear_dinero(monto)
+    if monto_num is None or monto_num <= 0:
+        return RedirectResponse("/clientas?error=El monto del abono debe ser mayor a 0.", status_code=303)
+
+    with engine.begin() as conn:
+        ventas_deuda = conn.execute(text(
+            "SELECT v.id, (v.precio_unitario * v.cantidad) - COALESCE(pv.pagado, 0) AS saldo "
+            "FROM ventas v "
+            "LEFT JOIN (SELECT venta_id, SUM(monto) AS pagado FROM pagos GROUP BY venta_id) pv "
+            "       ON pv.venta_id = v.id "
+            "WHERE v.cliente_id = :id "
+            "  AND (v.precio_unitario * v.cantidad) > COALESCE(pv.pagado, 0) "
+            "ORDER BY v.creada_en ASC"
+        ), {"id": cliente_id}).mappings().all()
+
+        saldo_total = round(sum(float(v["saldo"]) for v in ventas_deuda), 2)
+        if saldo_total <= 0:
+            return RedirectResponse("/clientas?error=Esta clienta no tiene saldo pendiente.", status_code=303)
+        if monto_num > saldo_total:
+            return RedirectResponse(
+                f"/clientas?error=El abono (${monto_num:.2f}) es mayor a la deuda total (${saldo_total:.2f}).",
+                status_code=303,
+            )
+
+        restante = monto_num
+        for v in ventas_deuda:
+            if restante <= 0:
+                break
+            pago_este = min(restante, float(v["saldo"]))
+            conn.execute(text(
+                "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
+            ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
+            restante -= pago_este
+
     return RedirectResponse("/clientas", status_code=303)
 
 

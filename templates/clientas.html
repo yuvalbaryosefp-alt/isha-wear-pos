@@ -40,6 +40,43 @@
     </form>
   </div>
 
+  {# ---------- Clientas con saldo pendiente ---------- #}
+  <h2>Saldos pendientes</h2>
+  {% if con_saldo %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Teléfono</th>
+          <th>Debe</th>
+          <th>Abonar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in con_saldo %}
+          <tr>
+            <td><a href="/clientas/{{ c.id }}">{{ c.nombre }}</a></td>
+            <td>{{ c.telefono or "—" }}</td>
+            <td class="num" style="color:#B02A2A">${{ "%.2f"|format(c.saldo_pendiente) }}</td>
+            <td>
+              <form method="post" action="/clientas/{{ c.id }}/abonar" style="display:flex; gap:6px; align-items:center">
+                <input type="text" name="monto" placeholder="Monto" style="width:90px; padding:5px 7px" required>
+                <select name="metodo" style="width:120px; padding:5px 7px">
+                  <option value="efectivo">Efectivo</option>
+                  <option value="tarjeta">Tarjeta</option>
+                  <option value="transferencia">Transferencia</option>
+                </select>
+                <button type="submit" style="margin:0; padding:6px 12px; font-size:13px">Abonar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Ninguna clienta debe saldo. 👍</div>
+  {% endif %}
+
   {# ---------- Alerta: clientas que no han vuelto ---------- #}
   <h2>Clientas que no han vuelto ({{ dias_alerta }}+ días)</h2>
   {% if no_han_vuelto %}
