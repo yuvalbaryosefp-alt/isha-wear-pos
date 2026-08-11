@@ -87,8 +87,16 @@
       </div>
       <p style="font-size:12px; color:#777; margin:-6px 0 10px">
         Si dejas vacío el monto pagado, se asume que ya pagó todo (el total, no solo el subtotal mostrado arriba).
-        Si escribes un monto menor, la venta queda con saldo pendiente (útil para apartados).
+        Si escribes un monto menor, la venta queda con saldo pendiente.
       </p>
+      <div class="fila-form">
+        <div>
+          <label style="display:flex; align-items:center; gap:6px; font-weight:400">
+            <input type="checkbox" id="v_apartado" name="apartado" style="width:auto">
+            Es un apartado (no cuenta en reportes hasta que se pague completo)
+          </label>
+        </div>
+      </div>
       <button type="submit">Registrar venta</button>
     </form>
   </div>
@@ -213,6 +221,14 @@
             <td class="num">${{ "%.2f"|format(v.saldo) }}</td>
             <td>
               <span class="badge {{ v.estado|lower }}">{{ v.estado }}</span>
+              {% if v.saldo > 0 %}
+                <form method="post" action="/ventas/{{ v.id }}/apartado" style="display:inline">
+                  <input type="hidden" name="valor" value="{{ 'false' if v.apartado else 'true' }}">
+                  <button type="submit" style="margin:2px 0 0; padding:2px 8px; font-size:11px; background:none; border:1px solid var(--borde); display:block">
+                    {{ "Quitar apartado" if v.apartado else "Marcar apartado" }}
+                  </button>
+                </form>
+              {% endif %}
             </td>
             <td>{{ v.metodos }}</td>
             <td>

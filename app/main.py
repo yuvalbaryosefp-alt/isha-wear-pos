@@ -499,6 +499,7 @@ def registrar_venta(
     cliente_id: str = Form(""),  # opcional: puede venir vacío ("Sin clienta")
     monto_pagado: str = Form(""),   # opcional: vacío = se asume que pagó todo
     metodo_pago: str = Form("efectivo"),
+    apartado: bool = Form(False),  # ej. la prenda ya salió pero no se ha pagado del todo
 ):
     """Registra una venta: descuenta stock y guarda la info financiera y el pago."""
     canal = canal.strip()
@@ -594,14 +595,14 @@ def registrar_venta(
         venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-            " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero) "
+            " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota, apartado) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero, :apartado) "
             "RETURNING id"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
             "cliente": cliente_id_num, "descuento": descuento_pct, "pedido": str(uuid.uuid4()),
-            "numero": numero_nota,
+            "numero": numero_nota, "apartado": apartado,
         }).scalar_one()
 
         # 4) Registra el pago inicial (ya validado arriba). Si el monto es 0,
@@ -635,7 +636,7 @@ def ver_ventas(request: Request, error: str | None = None):
         ventas_rows = conn.execute(text(
             "SELECT v.id, v.creada_en, p.titulo, s.nombre AS sucursal, v.canal, "
             "       v.tipo_precio, c.nombre AS clienta, v.cantidad, v.precio_unitario, "
-            "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo "
+            "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo, v.apartado "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
@@ -662,6 +663,10 @@ def ver_ventas(request: Request, error: str | None = None):
 
         if saldo <= 0:
             estado = "Pagado"
+        elif v["apartado"]:
+            # Distinto de "Parcial"/"Pendiente": además de no estar pagada,
+            # no cuenta todavía en /reportes ni en el CSV para el contador.
+            estado = "Apartado"
         elif pagado > 0:
             estado = "Parcial"
         else:
@@ -683,6 +688,7 @@ def ver_ventas(request: Request, error: str | None = None):
             "pagado": pagado,
             "saldo": saldo,
             "estado": estado,
+            "apartado": v["apartado"],
             "metodos": metodos,
             "devolucion_tipo": v["devolucion_tipo"],
         })
@@ -729,6 +735,21 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
             "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
         ), {"v": venta_id, "metodo": metodo, "monto": monto_num})
 
+    return RedirectResponse("/ventas", status_code=303)
+
+
+@app.post("/ventas/{venta_id}/apartado")
+def marcar_apartado(venta_id: int, valor: bool = Form(...)):
+    """Marca o desmarca una venta YA registrada como apartado (ej. una que se
+    dio de alta antes de que existiera esta opción). Mientras le quede saldo
+    pendiente, deja de contar en /reportes y en el CSV para el contador."""
+    with engine.begin() as conn:
+        actualizada = conn.execute(text(
+            "UPDATE ventas SET apartado = :valor WHERE id = :id RETURNING id"
+        ), {"valor": valor, "id": venta_id}).scalar()
+
+    if actualizada is None:
+        return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
     return RedirectResponse("/ventas", status_code=303)
 
 
@@ -964,6 +985,7 @@ def registrar_carrito(
     cliente_id: str = Form(""),
     monto_pagado: str = Form(""),
     metodo_pago: str = Form("efectivo"),
+    apartado: bool = Form(False),  # ej. las prendas ya salieron pero no se han pagado del todo
     producto_id: list[int] = Form(...),
     tipo_precio: list[str] = Form(...),
     cantidad: list[str] = Form(...),
@@ -1075,14 +1097,14 @@ def registrar_carrito(
             venta_id = conn.execute(text(
                 "INSERT INTO ventas "
                 "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-                " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota) "
-                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero) "
+                " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota, apartado) "
+                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero, :apartado) "
                 "RETURNING id"
             ), {
                 "p": it["producto_id"], "s": sucursal_id, "canal": canal, "tipo_precio": it["tipo_precio"],
                 "cant": it["cantidad"], "precio": it["precio_unitario"], "costo": it["costo_unitario"],
                 "cliente": cliente_id_num, "descuento": it["descuento_pct"], "pedido": pedido_id,
-                "numero": numero_nota,
+                "numero": numero_nota, "apartado": apartado,
             }).scalar_one()
             venta_ids.append(venta_id)
 
@@ -1780,6 +1802,11 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
             "WHERE v.creada_en::date BETWEEN :desde AND :hasta "
+            # Igual que en /reportes: los apartados con saldo pendiente no
+            # cuentan todavía (no se han cobrado de verdad).
+            "AND (NOT v.apartado OR "
+            "     (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
+            "     >= v.precio_unitario * v.cantidad) "
             "ORDER BY v.creada_en"
         ), {"desde": desde, "hasta": hasta}).mappings().all()
 
@@ -1825,7 +1852,15 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         hasta = hoy.isoformat()
 
     # Filtra por la fecha de la venta (comparando solo la parte de fecha).
-    where = "WHERE v.creada_en::date BETWEEN :desde AND :hasta"
+    # Los apartados con saldo pendiente NO cuentan como ingreso/ganancia
+    # todavía (la prenda salió pero no se ha cobrado); en cuanto se terminan
+    # de pagar, el subquery de pagos ya cubre el total y entran solos.
+    where = (
+        "WHERE v.creada_en::date BETWEEN :desde AND :hasta "
+        "AND (NOT v.apartado OR "
+        "     (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
+        "     >= v.precio_unitario * v.cantidad)"
+    )
     params = {"desde": desde, "hasta": hasta}
 
     with engine.connect() as conn:

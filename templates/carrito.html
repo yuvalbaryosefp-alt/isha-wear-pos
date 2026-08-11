@@ -83,6 +83,14 @@
         Si dejas vacío el monto pagado, se asume que pagó todo el pedido. Si escribes un monto menor,
         se reparte pagando primero la prenda 1, luego la 2, etc., hasta agotarlo.
       </p>
+      <div class="fila-form">
+        <div>
+          <label style="display:flex; align-items:center; gap:6px; font-weight:400">
+            <input type="checkbox" id="c_apartado" name="apartado" style="width:auto">
+            Es un apartado (no cuenta en reportes hasta que se pague completo)
+          </label>
+        </div>
+      </div>
 
       <button type="submit">Registrar venta múltiple</button>
     </form>

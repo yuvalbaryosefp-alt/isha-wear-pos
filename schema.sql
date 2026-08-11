@@ -182,6 +182,13 @@ CREATE TABLE IF NOT EXISTS notas_folio (
     ultimo_numero INTEGER NOT NULL DEFAULT 0
 );
 
+-- Marca una venta como apartado (la prenda ya salió del stock, pero la
+-- clienta todavía no la paga completa). Los reportes financieros excluyen
+-- los apartados mientras les quede saldo pendiente, para no contar como
+-- ingreso/ganancia algo que todavía no se cobró; en cuanto se terminan de
+-- pagar (saldo = 0), entran solos al reporte, sin tocar nada a mano.
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS apartado BOOLEAN NOT NULL DEFAULT FALSE;
+
 
 -- ------------------------------------------------------------
 -- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)
