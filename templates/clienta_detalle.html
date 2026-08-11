@@ -18,11 +18,28 @@
     </form>
   </div>
 
-  <h2>Historial de compras</h2>
+  <h2>
+    Historial de compras
+    {% if compras %}
+      <select form="form-nota-clienta" name="copias" style="margin:0 0 0 10px; padding:5px 7px; font-size:13px" title="Cuántas copias imprimir">
+        <option value="1">1 nota</option>
+        <option value="2">2 notas (ej. clienta + tienda)</option>
+      </select>
+      <button type="submit" form="form-nota-clienta" style="margin:0 0 0 6px; padding:6px 14px; font-size:13px">
+        🖨️ Imprimir nota de pedido
+      </button>
+    {% endif %}
+  </h2>
   {% if compras %}
+    <p style="font-size:12px; color:#777; margin:-8px 0 12px">
+      Vienen todas marcadas para juntar en una sola nota (ej. todo lo que se llevó en una visita);
+      desmarca las que no quieras incluir.
+    </p>
+    <form id="form-nota-clienta" method="get" action="/ventas/nota"></form>
     <table>
       <thead>
         <tr>
+          <th></th>
           <th>Fecha</th>
           <th>Producto</th>
           <th>Cantidad</th>
@@ -36,6 +53,7 @@
       <tbody>
         {% for c in compras %}
           <tr>
+            <td><input type="checkbox" name="id" value="{{ c.id }}" form="form-nota-clienta" checked></td>
             <td>{{ c.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
             <td>{{ c.titulo }}</td>
             <td class="num">{{ c.cantidad }}</td>

@@ -1454,7 +1454,7 @@ def ver_clienta(request: Request, cliente_id: int):
             return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
 
         compras_rows = conn.execute(text(
-            "SELECT v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
+            "SELECT v.id, v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
             "       v.canal, v.tipo_precio, v.descuento_pct "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
