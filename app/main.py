@@ -563,11 +563,12 @@ def registrar_venta(
 
         # Valida el monto pagado ANTES de escribir nada (si no, un error aquí
         # dejaría la venta a medias, porque el bloque ya habría hecho commit).
-        # Si se deja vacío, se asume que pagó todo (el caso más común).
+        # Si se deja vacío, se asume que pagó todo (el caso más común) — EXCEPTO
+        # si es un apartado, donde vacío significa que no dejó nada de anticipo.
         total_venta = float(precio_unitario) * cantidad_num
         monto_pagado_num = parsear_dinero(monto_pagado)
         if monto_pagado_num is None:
-            monto_pagado_num = total_venta
+            monto_pagado_num = 0.0 if apartado else total_venta
 
         if monto_pagado_num < 0 or monto_pagado_num > total_venta:
             return RedirectResponse(
@@ -1072,10 +1073,12 @@ def registrar_carrito(
             })
 
         # --- Paso 2: validar el pago combinado ANTES de escribir nada. ---
+        # Igual que en la venta individual: vacío = pagó todo, EXCEPTO si es
+        # un apartado, donde vacío significa que no dejó nada de anticipo.
         total_pedido = sum(it["subtotal"] for it in items_resueltos)
         monto_pagado_num = parsear_dinero(monto_pagado)
         if monto_pagado_num is None:
-            monto_pagado_num = total_pedido
+            monto_pagado_num = 0.0 if apartado else total_pedido
 
         if monto_pagado_num < 0 or monto_pagado_num > total_pedido:
             return RedirectResponse(
