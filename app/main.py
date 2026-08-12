@@ -46,6 +46,15 @@ FOTO_ANCHO_MAX = 1000
 # Días sin comprar a partir de los cuales una clienta se marca como "no ha vuelto".
 DIAS_SIN_COMPRAR_ALERTA = 60
 
+# Canales de venta válidos y su nombre bonito para mostrar en pantalla/reportes.
+CANALES = {
+    "boutique": "Boutique",
+    "ecommerce": "E-commerce",
+    "consignacion": "Consignación",
+    "mayoreo": "Mayoreo",
+    "domicilio": "Domicilio",
+}
+
 # Días sin venderse a partir de los cuales una prenda con stock se marca
 # como "no se mueve" (candidata a liquidar o dejar de reordenar).
 DIAS_SIN_VENDER_ALERTA = 60
@@ -81,6 +90,7 @@ app = FastAPI(title="Inventario Isha Boutique", dependencies=[Depends(requiere_l
 # Carpeta donde viven las plantillas HTML (se calcula relativa a este archivo).
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.filters["etiqueta_canal"] = lambda canal: CANALES.get(canal, canal)
 
 # Archivos estáticos (ej. el logo de la boutique). Nota: los archivos montados
 # así NO pasan por requiere_login (son públicos) — aceptable porque son solo
@@ -517,7 +527,7 @@ def registrar_venta(
     if cantidad_num <= 0:
         return RedirectResponse("/ventas?error=La cantidad debe ser mayor a 0.", status_code=303)
 
-    if canal not in ("boutique", "ecommerce"):
+    if canal not in CANALES:
         return RedirectResponse("/ventas?error=Canal de venta inválido.", status_code=303)
 
     if tipo_precio not in ("menudeo", "mayoreo"):
@@ -1002,7 +1012,7 @@ def registrar_carrito(
 
     if metodo_pago not in ("efectivo", "tarjeta", "transferencia"):
         return RedirectResponse("/ventas/carrito?error=Método de pago inválido.", status_code=303)
-    if canal not in ("boutique", "ecommerce"):
+    if canal not in CANALES:
         return RedirectResponse("/ventas/carrito?error=Canal de venta inválido.", status_code=303)
 
     n = len(producto_id)
@@ -1889,7 +1899,7 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
         writer.writerow([
             f["creada_en"].astimezone(ZONA_CDMX).strftime("%Y-%m-%d %H:%M"),
             f["sku"], f["titulo"], f["sucursal"],
-            "Boutique" if f["canal"] == "boutique" else "E-commerce",
+            CANALES.get(f["canal"], f["canal"]),
             "Menudeo" if f["tipo_precio"] == "menudeo" else "Mayoreo",
             cantidad, precio_unitario, costo_unitario,
             float(f["descuento_pct"] or 0), round(subtotal, 2), round(ganancia, 2),
@@ -1986,12 +1996,10 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             "LIMIT 50"
         ), {"dias": DIAS_SIN_VENDER_ALERTA}).mappings().all()
 
-    # Nombres bonitos para los canales.
-    etiquetas_canal = {"boutique": "Boutique", "ecommerce": "E-commerce"}
     canal_filas = []
     for r in por_canal:
         fila = _resumen(r)
-        fila["dim"] = etiquetas_canal.get(fila["dim"], fila["dim"])
+        fila["dim"] = CANALES.get(fila["dim"], fila["dim"])
         canal_filas.append(fila)
 
     # Top productos: mismas métricas, con sku/título en vez de una dimensión.

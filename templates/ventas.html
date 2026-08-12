@@ -36,6 +36,9 @@
           <select id="v_canal" name="canal" required>
             <option value="boutique">Boutique (venta en tienda)</option>
             <option value="ecommerce">E-commerce (venta en línea)</option>
+            <option value="consignacion">Consignación</option>
+            <option value="mayoreo">Mayoreo</option>
+            <option value="domicilio">Domicilio</option>
           </select>
         </div>
         <div>
@@ -213,7 +216,7 @@
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
             <td>{{ v.titulo }}</td>
             <td>{{ v.sucursal }}</td>
-            <td>{{ "Boutique" if v.canal == "boutique" else "E-commerce" }}</td>
+            <td>{{ v.canal|etiqueta_canal }}</td>
             <td>{{ v.clienta or "—" }}</td>
             <td class="num">{{ v.cantidad }}</td>
             <td class="num">${{ "%.2f"|format(v.total) }}</td>

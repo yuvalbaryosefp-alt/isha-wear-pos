@@ -121,8 +121,8 @@ CREATE TABLE IF NOT EXISTS ventas (
     sucursal_id     BIGINT NOT NULL REFERENCES sucursales(id) ON DELETE CASCADE,
     cliente_id      BIGINT REFERENCES clientas(id) ON DELETE SET NULL,
 
-    -- Canal de venta: boutique física o tienda en línea
-    canal           TEXT NOT NULL CHECK (canal IN ('boutique', 'ecommerce')),
+    -- Canal de venta.
+    canal           TEXT NOT NULL CHECK (canal IN ('boutique', 'ecommerce', 'consignacion', 'mayoreo', 'domicilio')),
 
     -- Con cuál de los 2 precios de lista se vendió (independiente de si el
     -- precio_unitario final se ajustó a mano, ej. por un descuento).
@@ -188,6 +188,13 @@ CREATE TABLE IF NOT EXISTS notas_folio (
 -- ingreso/ganancia algo que todavía no se cobró; en cuanto se terminan de
 -- pagar (saldo = 0), entran solos al reporte, sin tocar nada a mano.
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS apartado BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Amplía los canales de venta válidos (antes solo boutique/ecommerce).
+-- DROP + ADD porque Postgres no tiene "ALTER CONSTRAINT ... IF NOT EXISTS"
+-- para CHECKs; el nombre es el que Postgres autogeneró al crear la tabla.
+ALTER TABLE ventas DROP CONSTRAINT IF EXISTS ventas_canal_check;
+ALTER TABLE ventas ADD CONSTRAINT ventas_canal_check
+    CHECK (canal IN ('boutique', 'ecommerce', 'consignacion', 'mayoreo', 'domicilio'));
 
 
 -- ------------------------------------------------------------

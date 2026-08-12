@@ -39,7 +39,7 @@
           <tr>
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
             <td>{{ v.sucursal }}</td>
-            <td>{{ "Boutique" if v.canal == "boutique" else "E-commerce" }}</td>
+            <td>{{ v.canal|etiqueta_canal }}</td>
             <td>{{ "Menudeo" if v.tipo_precio == "menudeo" else "Mayoreo" }}</td>
             <td>{{ v.clienta or "—" }}</td>
             <td class="num">{{ v.cantidad }}</td>

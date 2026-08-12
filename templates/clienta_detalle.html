@@ -59,7 +59,7 @@
             <td class="num">{{ c.cantidad }}</td>
             <td class="num">${{ "%.2f"|format(c.precio_unitario) }}</td>
             <td>{{ c.sucursal }}</td>
-            <td>{{ "Boutique" if c.canal == "boutique" else "E-commerce" }}</td>
+            <td>{{ c.canal|etiqueta_canal }}</td>
             <td>{{ "Menudeo" if c.tipo_precio == "menudeo" else "Mayoreo" }}</td>
             <td class="num">{{ "%.1f"|format(c.descuento_pct) + "%" if c.descuento_pct else "—" }}</td>
           </tr>
