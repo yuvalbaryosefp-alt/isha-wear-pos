@@ -196,6 +196,21 @@ ALTER TABLE ventas DROP CONSTRAINT IF EXISTS ventas_canal_check;
 ALTER TABLE ventas ADD CONSTRAINT ventas_canal_check
     CHECK (canal IN ('boutique', 'ecommerce', 'consignacion', 'mayoreo', 'domicilio'));
 
+-- ------------------------------------------------------------
+-- 8. VENDEDORAS  (quién atendió cada venta, para reportes de comisiones)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vendedoras (
+    id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nombre    TEXT NOT NULL UNIQUE,
+    activa    BOOLEAN NOT NULL DEFAULT TRUE,
+    creada_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Opcional: una venta puede no tener vendedora asignada (ON DELETE SET NULL,
+-- igual que clientas, para no perder el historial si se borra a alguien).
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS vendedora_id BIGINT REFERENCES vendedoras(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_ventas_vendedora ON ventas (vendedora_id);
+
 
 -- ------------------------------------------------------------
 -- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)

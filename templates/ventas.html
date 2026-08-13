@@ -73,6 +73,15 @@
             {% endfor %}
           </select>
         </div>
+        <div>
+          <label for="v_vendedora">Vendedora (opcional)</label>
+          <select id="v_vendedora" name="vendedora_id">
+            <option value="">— Sin vendedora —</option>
+            {% for ve in vendedoras %}
+              <option value="{{ ve.id }}">{{ ve.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
       <div class="fila-form">
         <div>
@@ -200,6 +209,7 @@
           <th>Sucursal</th>
           <th>Canal</th>
           <th>Clienta</th>
+          <th>Vendedora</th>
           <th>Cant.</th>
           <th>Total</th>
           <th>Pagado</th>
@@ -220,6 +230,7 @@
             <td>{{ v.sucursal }}</td>
             <td>{{ v.canal|etiqueta_canal }}</td>
             <td>{{ v.clienta or "—" }}</td>
+            <td>{{ v.vendedora or "—" }}</td>
             <td class="num">{{ v.cantidad }}</td>
             <td class="num">${{ "%.2f"|format(v.total) }}</td>
             <td class="num">${{ "%.2f"|format(v.pagado) }}</td>

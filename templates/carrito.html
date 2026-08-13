@@ -42,6 +42,15 @@
             {% endfor %}
           </select>
         </div>
+        <div>
+          <label for="c_vendedora">Vendedora (opcional)</label>
+          <select id="c_vendedora" name="vendedora_id">
+            <option value="">— Sin vendedora —</option>
+            {% for ve in vendedoras %}
+              <option value="{{ ve.id }}">{{ ve.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
 
       <h2 style="margin-top:22px">Prendas</h2>

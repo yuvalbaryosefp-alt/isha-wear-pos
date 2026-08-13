@@ -507,6 +507,7 @@ def registrar_venta(
     precio: str = Form(""),
     descuento: str = Form(""),   # opcional: % de descuento sobre el precio ya resuelto
     cliente_id: str = Form(""),  # opcional: puede venir vacío ("Sin clienta")
+    vendedora_id: str = Form(""),  # opcional: puede venir vacío ("Sin vendedora")
     monto_pagado: str = Form(""),   # opcional: vacío = se asume que pagó todo
     metodo_pago: str = Form("efectivo"),
     apartado: bool = Form(False),  # ej. la prenda ya salió pero no se ha pagado del todo
@@ -540,8 +541,9 @@ def registrar_venta(
     if descuento_pct is not None and not (0 <= descuento_pct <= 100):
         return RedirectResponse("/ventas?error=El descuento debe ser un % entre 0 y 100.", status_code=303)
 
-    # Convierte el select de clienta a número o None ("Sin clienta" llega vacío).
+    # Convierte los selects opcionales a número o None (vacío = "Sin ...").
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
+    vendedora_id_num = int(vendedora_id) if vendedora_id.strip() else None
 
     with engine.begin() as conn:
         # Trae los 2 precios de lista y el costo del producto.
@@ -606,14 +608,14 @@ def registrar_venta(
         venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-            " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota, apartado) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero, :apartado) "
+            " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, apartado) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :vendedora, :descuento, :pedido, :numero, :apartado) "
             "RETURNING id"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
-            "cliente": cliente_id_num, "descuento": descuento_pct, "pedido": str(uuid.uuid4()),
-            "numero": numero_nota, "apartado": apartado,
+            "cliente": cliente_id_num, "vendedora": vendedora_id_num, "descuento": descuento_pct,
+            "pedido": str(uuid.uuid4()), "numero": numero_nota, "apartado": apartado,
         }).scalar_one()
 
         # 4) Registra el pago inicial (ya validado arriba). Si el monto es 0,
@@ -644,14 +646,20 @@ def ver_ventas(request: Request, error: str | None = None):
             "SELECT id, nombre FROM clientas ORDER BY nombre"
         )).mappings().all()
 
+        vendedoras = conn.execute(text(
+            "SELECT id, nombre FROM vendedoras WHERE activa = TRUE ORDER BY nombre"
+        )).mappings().all()
+
         ventas_rows = conn.execute(text(
             "SELECT v.id, v.creada_en, p.titulo, s.nombre AS sucursal, v.canal, "
-            "       v.tipo_precio, c.nombre AS clienta, v.cantidad, v.precio_unitario, "
+            "       v.tipo_precio, c.nombre AS clienta, ve.nombre AS vendedora, "
+            "       v.cantidad, v.precio_unitario, "
             "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo, v.apartado "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "LEFT JOIN vendedoras ve ON ve.id = v.vendedora_id "
             "LEFT JOIN devoluciones d ON d.venta_id = v.id "
             "ORDER BY v.creada_en DESC LIMIT 200"
         )).mappings().all()
@@ -694,6 +702,7 @@ def ver_ventas(request: Request, error: str | None = None):
             "canal": v["canal"],
             "tipo_precio": v["tipo_precio"],
             "clienta": v["clienta"],
+            "vendedora": v["vendedora"],
             "cantidad": v["cantidad"],
             "total": total,
             "pagado": pagado,
@@ -707,7 +716,7 @@ def ver_ventas(request: Request, error: str | None = None):
     return templates.TemplateResponse(request, "ventas.html", {
         "ventas": ventas, "error": error,
         "productos": productos, "productos_json": productos_a_json(productos),
-        "sucursales": sucursales, "clientas": clientas,
+        "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras,
     })
 
 
@@ -981,9 +990,12 @@ def carrito_venta(request: Request, error: str | None = None):
         clientas = conn.execute(text(
             "SELECT id, nombre FROM clientas ORDER BY nombre"
         )).mappings().all()
+        vendedoras = conn.execute(text(
+            "SELECT id, nombre FROM vendedoras WHERE activa = TRUE ORDER BY nombre"
+        )).mappings().all()
 
     return templates.TemplateResponse(request, "carrito.html", {
-        "sucursales": sucursales, "clientas": clientas, "error": error,
+        "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras, "error": error,
         "productos_json": productos_a_json(productos),
     })
 
@@ -994,6 +1006,7 @@ def registrar_carrito(
     sucursal_id: int = Form(...),
     canal: str = Form(...),
     cliente_id: str = Form(""),
+    vendedora_id: str = Form(""),
     monto_pagado: str = Form(""),
     metodo_pago: str = Form("efectivo"),
     apartado: bool = Form(False),  # ej. las prendas ya salieron pero no se han pagado del todo
@@ -1021,6 +1034,7 @@ def registrar_carrito(
         return RedirectResponse("/ventas/carrito?error=Agrega al menos una prenda al carrito.", status_code=303)
 
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
+    vendedora_id_num = int(vendedora_id) if vendedora_id.strip() else None
 
     with engine.begin() as conn:
         # --- Paso 1: resolver y validar CADA renglón (solo lecturas, nada se
@@ -1110,14 +1124,14 @@ def registrar_carrito(
             venta_id = conn.execute(text(
                 "INSERT INTO ventas "
                 "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-                " costo_unitario, cliente_id, descuento_pct, pedido_id, numero_nota, apartado) "
-                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :descuento, :pedido, :numero, :apartado) "
+                " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, apartado) "
+                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :vendedora, :descuento, :pedido, :numero, :apartado) "
                 "RETURNING id"
             ), {
                 "p": it["producto_id"], "s": sucursal_id, "canal": canal, "tipo_precio": it["tipo_precio"],
                 "cant": it["cantidad"], "precio": it["precio_unitario"], "costo": it["costo_unitario"],
-                "cliente": cliente_id_num, "descuento": it["descuento_pct"], "pedido": pedido_id,
-                "numero": numero_nota, "apartado": apartado,
+                "cliente": cliente_id_num, "vendedora": vendedora_id_num, "descuento": it["descuento_pct"],
+                "pedido": pedido_id, "numero": numero_nota, "apartado": apartado,
             }).scalar_one()
             venta_ids.append(venta_id)
 
@@ -1569,6 +1583,75 @@ def ver_clienta(request: Request, cliente_id: int):
     return templates.TemplateResponse(request, "clienta_detalle.html", {"clienta": clienta, "compras": compras})
 
 
+@app.get("/vendedoras")
+def ver_vendedoras(request: Request, error: str | None = None):
+    """Lista las vendedoras/empleadas y cuánto ha vendido cada una en total,
+    para reportes de comisiones y desempeño."""
+    with engine.connect() as conn:
+        filas = conn.execute(text(
+            "SELECT ve.id, ve.nombre, ve.activa, "
+            "       COUNT(v.id) AS num_ventas, "
+            "       COALESCE(SUM(v.precio_unitario * v.cantidad), 0) AS total_vendido "
+            "FROM vendedoras ve "
+            "LEFT JOIN ventas v ON v.vendedora_id = ve.id "
+            "GROUP BY ve.id, ve.nombre, ve.activa "
+            "ORDER BY ve.activa DESC, ve.nombre"
+        )).mappings().all()
+
+    return templates.TemplateResponse(request, "vendedoras.html", {"vendedoras": filas, "error": error})
+
+
+@app.post("/vendedoras")
+def crear_vendedora(nombre: str = Form(...)):
+    """Da de alta una vendedora/empleada nueva."""
+    nombre = nombre.strip()
+    if not nombre:
+        return RedirectResponse("/vendedoras?error=El nombre no puede quedar vacío.", status_code=303)
+
+    with engine.begin() as conn:
+        ya_existe = conn.execute(text(
+            "SELECT 1 FROM vendedoras WHERE nombre = :nombre"
+        ), {"nombre": nombre}).scalar()
+        if ya_existe:
+            return RedirectResponse("/vendedoras?error=Ya existe una vendedora con ese nombre.", status_code=303)
+
+        conn.execute(text("INSERT INTO vendedoras (nombre) VALUES (:nombre)"), {"nombre": nombre})
+    return RedirectResponse("/vendedoras", status_code=303)
+
+
+@app.post("/vendedoras/{vendedora_id}/activa")
+def cambiar_activa_vendedora(vendedora_id: int, valor: bool = Form(...)):
+    """Activa o desactiva una vendedora (ej. ya no trabaja ahí), sin borrar
+    su historial de ventas pasadas ni las comisiones ya calculadas."""
+    with engine.begin() as conn:
+        actualizada = conn.execute(text(
+            "UPDATE vendedoras SET activa = :valor WHERE id = :id RETURNING id"
+        ), {"valor": valor, "id": vendedora_id}).scalar()
+
+    if actualizada is None:
+        return RedirectResponse("/vendedoras?error=Vendedora no encontrada.", status_code=303)
+    return RedirectResponse("/vendedoras", status_code=303)
+
+
+@app.post("/vendedoras/{vendedora_id}/eliminar")
+def eliminar_vendedora(vendedora_id: int):
+    """Borra una vendedora (ej. un registro duplicado o de prueba).
+
+    Sus ventas pasadas NO se borran: solo quedan sin vendedora asociada
+    (ON DELETE SET NULL), igual que con clientas. Para alguien que ya no
+    trabaja ahí pero cuyo historial quieres conservar intacto, mejor
+    desactivarla en vez de borrarla.
+    """
+    with engine.begin() as conn:
+        borrada = conn.execute(text(
+            "DELETE FROM vendedoras WHERE id = :id RETURNING id"
+        ), {"id": vendedora_id}).scalar()
+
+    if borrada is None:
+        return RedirectResponse("/vendedoras?error=Vendedora no encontrada.", status_code=303)
+    return RedirectResponse("/vendedoras", status_code=303)
+
+
 @app.get("/desactivados")
 def ver_desactivados(request: Request):
     """Lista los productos eliminados (inactivos), por si hay que reactivar alguno."""
@@ -1872,11 +1955,12 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
         filas = conn.execute(text(
             "SELECT v.creada_en, p.sku, p.titulo, s.nombre AS sucursal, v.canal, "
             "       v.tipo_precio, v.cantidad, v.precio_unitario, v.costo_unitario, "
-            "       v.descuento_pct, c.nombre AS clienta, v.pedido_id "
+            "       v.descuento_pct, c.nombre AS clienta, ve.nombre AS vendedora, v.pedido_id "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "LEFT JOIN vendedoras ve ON ve.id = v.vendedora_id "
             "WHERE v.creada_en::date BETWEEN :desde AND :hasta "
             # Igual que en /reportes: los apartados con saldo pendiente no
             # cuentan todavía (no se han cobrado de verdad).
@@ -1891,7 +1975,7 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
     writer.writerow([
         "Fecha", "SKU", "Producto", "Sucursal", "Canal", "Tipo de precio",
         "Cantidad", "Precio unitario", "Costo unitario", "Descuento %",
-        "Subtotal", "Ganancia bruta", "Clienta", "Pedido",
+        "Subtotal", "Ganancia bruta", "Clienta", "Vendedora", "Pedido",
     ])
     for f in filas:
         cantidad = f["cantidad"]
@@ -1906,7 +1990,7 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
             "Menudeo" if f["tipo_precio"] == "menudeo" else "Mayoreo",
             cantidad, precio_unitario, costo_unitario,
             float(f["descuento_pct"] or 0), round(subtotal, 2), round(ganancia, 2),
-            f["clienta"] or "", f["pedido_id"] or "",
+            f["clienta"] or "", f["vendedora"] or "", f["pedido_id"] or "",
         ])
 
     nombre_archivo = f"ventas_{desde}_a_{hasta}.csv"
@@ -1959,6 +2043,12 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         por_canal = conn.execute(text(
             f"SELECT v.canal AS dim, {_METRICAS} "
             f"FROM ventas v {where} GROUP BY v.canal ORDER BY bruta DESC"
+        ), params).mappings().all()
+
+        por_vendedora = conn.execute(text(
+            f"SELECT COALESCE(ve.nombre, 'Sin vendedora') AS dim, {_METRICAS} "
+            f"FROM ventas v LEFT JOIN vendedoras ve ON ve.id = v.vendedora_id {where} "
+            f"GROUP BY ve.nombre ORDER BY bruta DESC"
         ), params).mappings().all()
 
         # Ticket promedio = gasto promedio POR VISITA/COMPRA, no por prenda.
@@ -2033,6 +2123,7 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         "por_categoria": [_resumen(r) for r in por_categoria],
         "por_sucursal": [_resumen(r) for r in por_sucursal],
         "por_canal": canal_filas,
+        "por_vendedora": [_resumen(r) for r in por_vendedora],
         "num_tickets": int(ticket["num_tickets"] or 0),
         "ticket_promedio": float(ticket["ticket_promedio"]) if ticket["ticket_promedio"] is not None else 0.0,
         "top_productos": top_productos_filas,

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  {% if error %}
+    <div class="aviso">{{ error }}</div>
+  {% endif %}
+
+  {# ---------- Alta de vendedora ---------- #}
+  <h2>Agregar vendedora</h2>
+  <div class="tarjeta">
+    <form method="post" action="/vendedoras">
+      <div class="fila-form">
+        <div>
+          <label for="nombre">Nombre</label>
+          <input type="text" id="nombre" name="nombre" required autocomplete="off">
+        </div>
+        <div style="flex:0 0 auto; align-self:flex-end">
+          <button type="submit">Guardar vendedora</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  {# ---------- Lista de vendedoras con lo que han vendido ---------- #}
+  <h2>Vendedoras</h2>
+  {% if vendedoras %}
+    <div class="tabla-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Estado</th>
+          <th>Ventas</th>
+          <th>Total vendido</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ve in vendedoras %}
+          <tr>
+            <td>{{ ve.nombre }}</td>
+            <td>
+              <span class="badge {{ 'pagado' if ve.activa else 'pendiente' }}">
+                {{ "Activa" if ve.activa else "Inactiva" }}
+              </span>
+            </td>
+            <td class="num">{{ ve.num_ventas }}</td>
+            <td class="num">${{ "%.2f"|format(ve.total_vendido) }}</td>
+            <td style="display:flex; gap:6px">
+              <form method="post" action="/vendedoras/{{ ve.id }}/activa">
+                <input type="hidden" name="valor" value="{{ 'false' if ve.activa else 'true' }}">
+                <button type="submit" class="btn-sm btn-secundario">
+                  {{ "Desactivar" if ve.activa else "Activar" }}
+                </button>
+              </form>
+              <form method="post" action="/vendedoras/{{ ve.id }}/eliminar"
+                    onsubmit="return confirm('¿Eliminar a {{ ve.nombre|e }}? Sus ventas pasadas se quedan en el historial, solo se les quita el nombre. Esta acción no se puede deshacer.');">
+                <button type="submit" class="btn-sm btn-peligro">Eliminar</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% else %}
+    <div class="tarjeta vacio">Todavía no hay vendedoras registradas.</div>
+  {% endif %}
+  <p class="nota">
+    Para alguien que ya no trabaja ahí pero cuyo historial quieres conservar, mejor desactívala en vez de eliminarla —
+    sigue apareciendo en los reportes de ventas pasadas, pero ya no aparece como opción al registrar una venta nueva.
+  </p>
+
+{% endblock %}
