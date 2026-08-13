@@ -4,98 +4,168 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventario · Isha Boutique</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --rosa: #C8347A;
+      --rosa-oscuro: #A8235F;
+      --rosa-suave: #FBEAF2;
       --charcoal: #2C2C2C;
-      --gris: #F5F5F5;
-      --borde: #E2E2E2;
+      --gris: #F7F6F5;
+      --borde: #E7E3E1;
+      --texto-tenue: #8A8481;
+      --verde: #1a7a3c;
+      --verde-suave: #E3F5EA;
+      --ambar: #9a6a00;
+      --ambar-suave: #FFF3DA;
+      --rojo: #B02A2A;
+      --rojo-suave: #FDECEC;
+      --morado: #5a2a9a;
+      --morado-suave: #EAE3F5;
+      --sombra: 0 1px 2px rgba(44,44,44,0.04), 0 4px 14px rgba(44,44,44,0.06);
+      --radio: 12px;
     }
     * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
       color: var(--charcoal);
       background: var(--gris);
       margin: 0;
-      padding: 0 16px 48px;
+      padding: 0 20px 56px;
+      -webkit-font-smoothing: antialiased;
     }
     header {
       background: var(--charcoal);
       color: #fff;
-      margin: 0 -16px 24px;
-      padding: 20px 24px;
+      margin: 0 -20px 28px;
+      padding: 18px 28px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
     }
-    header h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
-    header span { color: var(--rosa); font-weight: 700; }
-    header nav { margin-top: 10px; }
+    header .barra { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; max-width: 1080px; margin: 0 auto; }
+    header h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; }
+    header span { color: var(--rosa); }
+    header nav { display: flex; flex-wrap: wrap; gap: 4px; }
     header nav a {
-      color: #fff; text-decoration: none; font-size: 14px;
-      margin-right: 18px; opacity: 0.85;
+      color: rgba(255,255,255,0.78); text-decoration: none; font-size: 13.5px; font-weight: 500;
+      padding: 7px 12px; border-radius: 20px; transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
     }
-    header nav a:hover { opacity: 1; border-bottom: 2px solid var(--rosa); }
-    .contenedor { max-width: 900px; margin: 0 auto; }
-    h2 { font-size: 16px; margin: 28px 0 12px; }
+    header nav a:hover { color: #fff; background: rgba(255,255,255,0.08); }
+    header nav a.activo { color: #fff; background: var(--rosa); }
+    .contenedor { max-width: 1080px; margin: 0 auto; }
+    h2 {
+      font-size: 15px; font-weight: 700; margin: 30px 0 12px;
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+      color: var(--charcoal);
+    }
+    h2:first-child { margin-top: 0; }
     .tarjeta {
       background: #fff;
       border: 1px solid var(--borde);
-      border-radius: 10px;
-      padding: 20px;
+      border-radius: var(--radio);
+      padding: 22px;
+      box-shadow: var(--sombra);
     }
-    label { display: block; font-size: 13px; margin: 10px 0 4px; font-weight: 600; }
+    label { display: block; font-size: 12.5px; margin: 10px 0 5px; font-weight: 600; color: #55504D; }
     input, select {
       width: 100%;
-      padding: 9px 11px;
+      padding: 9px 12px;
       border: 1px solid var(--borde);
-      border-radius: 7px;
+      border-radius: 8px;
       font-size: 14px;
       background: #fff;
+      font-family: inherit;
+      color: var(--charcoal);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--rosa);
+      box-shadow: 0 0 0 3px var(--rosa-suave);
     }
     .fila-form { display: flex; gap: 14px; flex-wrap: wrap; }
     .fila-form > div { flex: 1; min-width: 160px; }
-    button {
+    .opcion-check {
+      display: flex; align-items: center; gap: 8px;
+      font-weight: 500; font-size: 13.5px; color: var(--charcoal);
+      margin: 10px 0 4px;
+    }
+    .opcion-check input { width: auto; }
+    button, .btn {
       margin-top: 16px;
       background: var(--rosa);
       color: #fff;
       border: none;
       padding: 11px 22px;
-      border-radius: 7px;
+      border-radius: 8px;
       font-size: 14px;
       font-weight: 600;
+      font-family: inherit;
       cursor: pointer;
+      transition: background 0.15s, opacity 0.15s, transform 0.05s;
+      display: inline-block;
     }
-    button:hover { opacity: 0.9; }
-    table { width: 100%; border-collapse: collapse; background: #fff; }
-    th, td { padding: 11px 12px; text-align: left; border-bottom: 1px solid var(--borde); font-size: 14px; }
-    th { background: var(--charcoal); color: #fff; font-weight: 600; }
+    button:hover, .btn:hover { background: var(--rosa-oscuro); }
+    button:active, .btn:active { transform: scale(0.98); }
+
+    /* Variantes chicas para acciones dentro de tablas (reemplazan estilos
+       sueltos repetidos por cada botón secundario/de riesgo). */
+    .btn-sm { margin: 0; padding: 6px 13px; font-size: 12.5px; border-radius: 7px; }
+    .btn-secundario, .btn-peligro, .btn-advertencia {
+      background: #fff; font-weight: 600;
+    }
+    .btn-secundario { color: #55504D; border: 1px solid var(--borde); }
+    .btn-secundario:hover { background: var(--gris); }
+    .btn-peligro { color: var(--rojo); border: 1px solid #F5B5B5; }
+    .btn-peligro:hover { background: var(--rojo-suave); }
+    .btn-advertencia { color: var(--ambar); border: 1px solid #e0c080; }
+    .btn-advertencia:hover { background: var(--ambar-suave); }
+
+    .tabla-scroll { overflow-x: auto; border-radius: var(--radio); box-shadow: var(--sombra); }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radio); overflow: hidden; }
+    th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--borde); font-size: 13.5px; white-space: nowrap; }
+    th { background: var(--charcoal); color: #fff; font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+    tbody tr:hover { background: var(--rosa-suave); }
+    tbody tr:last-child td { border-bottom: none; }
     td.num { text-align: center; font-variant-numeric: tabular-nums; }
-    .vacio { color: #888; padding: 20px; text-align: center; }
+    .vacio { color: var(--texto-tenue); padding: 26px; text-align: center; font-size: 14px; }
     .aviso {
-      background: #FDECEC; color: #B02A2A;
-      border: 1px solid #F5B5B5; border-radius: 7px;
+      background: var(--rojo-suave); color: var(--rojo);
+      border: 1px solid #F5B5B5; border-radius: 8px;
       padding: 12px 14px; font-size: 14px; margin-bottom: 16px;
+    }
+    .nota {
+      font-size: 12px; color: var(--texto-tenue); margin: -6px 0 10px;
     }
     .badge {
       display: inline-block; padding: 3px 10px; border-radius: 20px;
-      font-size: 12px; font-weight: 600;
+      font-size: 11.5px; font-weight: 700; letter-spacing: 0.01em;
     }
-    .badge.pagado { background: #E3F5EA; color: #1a7a3c; }
-    .badge.parcial { background: #FFF3DA; color: #9a6a00; }
-    .badge.pendiente { background: #FDECEC; color: #B02A2A; }
-    .badge.apartado { background: #EAE3F5; color: #5a2a9a; }
+    .badge.pagado { background: var(--verde-suave); color: var(--verde); }
+    .badge.parcial { background: var(--ambar-suave); color: var(--ambar); }
+    .badge.pendiente { background: var(--rojo-suave); color: var(--rojo); }
+    .badge.apartado { background: var(--morado-suave); color: var(--morado); }
   </style>
 </head>
 <body>
   <header>
-    <h1>Inventario <span>Isha Boutique</span></h1>
-    <nav>
-      <a href="/">Inventario</a>
-      <a href="/ventas/carrito">Venta múltiple</a>
-      <a href="/ventas">Ventas</a>
-      <a href="/clientas">Clientas</a>
-      <a href="/caja">Caja</a>
-      <a href="/reportes">Reportes</a>
-      <a href="/desactivados">Productos eliminados</a>
-    </nav>
+    <div class="barra">
+      <h1>Inventario <span>Isha Boutique</span></h1>
+      <nav>
+        <a href="/" class="{{ 'activo' if request.url.path == '/' }}">Inventario</a>
+        <a href="/ventas/carrito" class="{{ 'activo' if request.url.path == '/ventas/carrito' }}">Venta múltiple</a>
+        <a href="/ventas" class="{{ 'activo' if request.url.path == '/ventas' }}">Ventas</a>
+        <a href="/clientas" class="{{ 'activo' if request.url.path.startswith('/clientas') }}">Clientas</a>
+        <a href="/caja" class="{{ 'activo' if request.url.path == '/caja' }}">Caja</a>
+        <a href="/reportes" class="{{ 'activo' if request.url.path == '/reportes' }}">Reportes</a>
+        <a href="/desactivados" class="{{ 'activo' if request.url.path == '/desactivados' }}">Productos eliminados</a>
+      </nav>
+    </div>
   </header>
   <div class="contenedor">
     {% block contenido %}{% endblock %}

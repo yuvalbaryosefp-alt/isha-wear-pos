@@ -8,7 +8,7 @@
 
   {# ---------- Formulario para registrar una venta (1 sola prenda) ---------- #}
   <h2>Registrar venta</h2>
-  <p style="font-size:12px; color:#777; margin-top:-8px">
+  <p class="nota" style="margin-top:-8px">
     ¿Son varias prendas juntas? Usa <a href="/ventas/carrito">Venta múltiple</a> en su lugar.
   </p>
   <div class="tarjeta">
@@ -88,15 +88,15 @@
           </select>
         </div>
       </div>
-      <p style="font-size:12px; color:#777; margin:-6px 0 10px">
+      <p class="nota">
         Si dejas vacío el monto pagado, se asume que ya pagó todo (el total, no solo el subtotal mostrado arriba) —
         excepto si marcas "Es un apartado" abajo, donde vacío significa que no dejó ningún anticipo.
         Si escribes un monto menor, la venta queda con saldo pendiente.
       </p>
       <div class="fila-form">
         <div>
-          <label style="display:flex; align-items:center; gap:6px; font-weight:400">
-            <input type="checkbox" id="v_apartado" name="apartado" style="width:auto">
+          <label class="opcion-check">
+            <input type="checkbox" id="v_apartado" name="apartado">
             Es un apartado (no cuenta en reportes hasta que se pague completo)
           </label>
         </div>
@@ -173,15 +173,15 @@
 
   <h2>
     Ventas y estado de pago
-    <select form="form-nota" name="copias" style="margin:0 0 0 10px; padding:5px 7px; font-size:13px" title="Cuántas copias imprimir">
+    <select form="form-nota" name="copias" style="width:auto; padding:6px 10px; font-size:12.5px" title="Cuántas copias imprimir">
       <option value="1">1 nota</option>
       <option value="2">2 notas (ej. clienta + tienda)</option>
     </select>
-    <button type="submit" form="form-nota" style="margin:0 0 0 6px; padding:6px 14px; font-size:13px">
+    <button type="submit" form="form-nota" class="btn-sm" style="background:var(--rosa); color:#fff;">
       🖨️ Imprimir nota de pedido
     </button>
   </h2>
-  <p style="font-size:12px; color:#777; margin:-8px 0 12px">
+  <p class="nota" style="margin-top:-8px">
     Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta), elige cuántas copias y da clic en "Imprimir nota de pedido".
   </p>
 
@@ -190,6 +190,7 @@
   <form id="form-nota" method="get" action="/ventas/nota"></form>
 
   {% if ventas %}
+    <div class="tabla-scroll">
     <table>
       <thead>
         <tr>
@@ -226,9 +227,9 @@
             <td>
               <span class="badge {{ v.estado|lower }}">{{ v.estado }}</span>
               {% if v.saldo > 0 %}
-                <form method="post" action="/ventas/{{ v.id }}/apartado" style="display:inline">
+                <form method="post" action="/ventas/{{ v.id }}/apartado" style="margin-top:4px">
                   <input type="hidden" name="valor" value="{{ 'false' if v.apartado else 'true' }}">
-                  <button type="submit" style="margin:2px 0 0; padding:2px 8px; font-size:11px; background:none; border:1px solid var(--borde); display:block">
+                  <button type="submit" class="btn-sm btn-secundario" style="padding:3px 10px; font-size:11px">
                     {{ "Quitar apartado" if v.apartado else "Marcar apartado" }}
                   </button>
                 </form>
@@ -244,7 +245,7 @@
                     <option value="tarjeta">Tarjeta</option>
                     <option value="transferencia">Transferencia</option>
                   </select>
-                  <button type="submit" style="margin:0; padding:6px 12px; font-size:13px">Abonar</button>
+                  <button type="submit" class="btn-sm">Abonar</button>
                 </form>
               {% else %}
                 —
@@ -252,7 +253,7 @@
             </td>
             <td>
               {% if v.devolucion_tipo %}
-                <span class="badge" style="background:#F0E6D2; color:#8a5a00">
+                <span class="badge" style="background:var(--ambar-suave); color:var(--ambar)">
                   {{ "Devuelta" if v.devolucion_tipo == "devolucion" else "Cambio" }}
                 </span>
               {% else %}
@@ -263,7 +264,7 @@
                     <option value="cambio">Cambio</option>
                   </select>
                   <input type="text" name="motivo" placeholder="Motivo (opc.)" style="width:100px; padding:5px 7px">
-                  <button type="submit" style="margin:0; padding:6px 10px; font-size:13px; background:none; color:#8a5a00; border:1px solid #e0c080">
+                  <button type="submit" class="btn-sm btn-advertencia">
                     ↩ Registrar
                   </button>
                 </form>
@@ -273,7 +274,7 @@
               {% if not v.devolucion_tipo %}
                 <form method="post" action="/ventas/{{ v.id }}/eliminar"
                       onsubmit="return confirm('¿Eliminar esta venta de {{ v.titulo|e }}? Se repone el stock. Esta acción no se puede deshacer.');">
-                  <button type="submit" style="margin:0; padding:6px 12px; font-size:13px; background:none; color:#B02A2A; border:1px solid #F5B5B5">
+                  <button type="submit" class="btn-sm btn-peligro">
                     Eliminar
                   </button>
                 </form>
@@ -283,6 +284,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   {% else %}
     <div class="tarjeta vacio">Todavía no hay ventas registradas.</div>
   {% endif %}
