@@ -74,12 +74,17 @@
           </select>
           <details style="margin-top:6px">
             <summary style="cursor:pointer; font-size:12px; color:var(--rosa)">+ Nueva clienta</summary>
-            <form method="post" action="/clientas" style="display:flex; gap:6px; margin-top:6px">
-              <input type="hidden" name="siguiente" value="/ventas">
-              <input type="text" name="nombre" placeholder="Nombre" style="width:auto; flex:1" required>
-              <input type="text" name="telefono" placeholder="Teléfono" style="width:auto; flex:1">
-              <button type="submit" class="btn-sm">Guardar</button>
-            </form>
+            {# No es un <form> a propósito: un <form> no puede ir anidado dentro
+               de otro <form> (aquí, el de "Registrar venta") — el navegador
+               cierra el de afuera de golpe en cuanto abre uno adentro, y el
+               botón de "Registrar venta" se queda fuera de cualquier form
+               (deja de hacer nada al hacer clic). Se manda por fetch() en vez
+               de por un <form> propio. #}
+            <div style="display:flex; gap:6px; margin-top:6px">
+              <input type="text" id="v_nueva_clienta_nombre" placeholder="Nombre" style="width:auto; flex:1">
+              <input type="text" id="v_nueva_clienta_telefono" placeholder="Teléfono" style="width:auto; flex:1">
+              <button type="button" class="btn-sm" onclick="guardarNuevaClienta()">Guardar</button>
+            </div>
           </details>
         </div>
         {% if identidad.rol == "admin" %}
@@ -205,6 +210,23 @@
         if (sinPagoEl.checked) montoEl.value = '';
       });
     })();
+
+    // Da de alta la clienta nueva por separado (no es un <form> anidado,
+    // ver el comentario junto a "+ Nueva clienta" arriba) y recarga para
+    // que ya aparezca en el selector de Clienta.
+    function guardarNuevaClienta() {
+      var nombreEl = document.getElementById('v_nueva_clienta_nombre');
+      var nombre = nombreEl.value.trim();
+      if (!nombre) {
+        alert('Escribe el nombre de la clienta.');
+        return;
+      }
+      var telefono = document.getElementById('v_nueva_clienta_telefono').value.trim();
+      var datos = new URLSearchParams({ nombre: nombre, telefono: telefono, siguiente: '/ventas' });
+      fetch('/clientas', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: datos })
+        .then(function () { location.reload(); })
+        .catch(function () { alert('No se pudo guardar la clienta, intenta de nuevo.'); });
+    }
   </script>
 
   <h2>
