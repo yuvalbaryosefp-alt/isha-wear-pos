@@ -1050,11 +1050,18 @@ def nota_pedido(
     # así que en la nota se muestra junto con la sede para no confundirlos.
     sucursal_nombre = next(iter(sucursales_distintas)) if len(sucursales_distintas) == 1 else None
 
+    saldo = round(total - pagado_total, 2)
+
     return templates.TemplateResponse(request, "nota_pedido.html", {
         "items": items,
         "total": total,
         "pagado": pagado_total,
-        "saldo": round(total - pagado_total, 2),
+        "saldo": saldo,
+        # Documento distinto según si ya se cobró todo o no: un ticket de
+        # venta (ya pagada) no debe verse como una nota pendiente de cobrar,
+        # y viceversa — para que ni al mostrador ni a la clienta le quede
+        # duda de si todavía se debe algo.
+        "pagado_completo": saldo <= 0,
         "clienta": clienta_nombre,
         "numero_nota": numero_nota,
         "sucursal": sucursal_nombre,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nota de pedido · Isha Boutique</title>
+  <title>{{ "Ticket de venta" if pagado_completo else "Nota pendiente de liquidar" }} · Isha Boutique</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -21,6 +21,15 @@
       font-size: 11px; color: #444; text-align: center; line-height: 1.5;
     }
     .datos p { margin: 3px 0; font-size: 13px; }
+
+    .estado {
+      display: inline-block; margin: 6px 0 2px; padding: 4px 12px;
+      border-radius: 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.03em;
+    }
+    .estado.pagado { background: #E3F5EA; color: #1a7a3c; }
+    .estado.pendiente { background: #FDECEC; color: #B02A2A; }
+
+    .saldo-pendiente td { font-size: 18px !important; font-weight: 800 !important; color: #B02A2A; }
 
     /* Lista de prendas: cada una en su propio bloque (título arriba,
        cantidad/precio/subtotal abajo) en vez de una tabla de 4 columnas
@@ -87,6 +96,8 @@
       .totales { margin-top: 6px; }
       .totales td { font-size: 11px; }
       .totales .grande td { font-size: 13px; }
+      .saldo-pendiente td { font-size: 15px !important; }
+      .estado { font-size: 10px; padding: 3px 9px; }
       .politica { font-size: 10px; margin-top: 12px; padding-top: 8px; }
     }
   </style>
@@ -102,7 +113,12 @@
       </div>
 
       <div class="datos">
-        <p><strong>Nota de pedido{% if numero_nota %} #{{ numero_nota }}{% endif %}{% if sucursal %} · {{ sucursal }}{% endif %}</strong></p>
+        <p><strong>{{ "Ticket de venta" if pagado_completo else "Nota pendiente de liquidar" }}{% if numero_nota %} #{{ numero_nota }}{% endif %}{% if sucursal %} · {{ sucursal }}{% endif %}</strong></p>
+        <p>
+          <span class="estado {{ 'pagado' if pagado_completo else 'pendiente' }}">
+            {{ "PAGADO" if pagado_completo else "PENDIENTE DE PAGO" }}
+          </span>
+        </p>
         <p>Fecha: {{ fecha.strftime("%d/%m/%Y %H:%M") }}</p>
         {% if clienta %}
           <p>Clienta: {{ clienta }}</p>
@@ -121,20 +137,33 @@
         {% endfor %}
       </div>
 
-      <table class="totales">
-        <tr class="grande">
-          <td class="label">Total:</td>
-          <td class="valor">${{ "%.2f"|format(total) }}</td>
-        </tr>
-        <tr>
-          <td class="label">Pagado:</td>
-          <td class="valor">${{ "%.2f"|format(pagado) }}</td>
-        </tr>
-        <tr>
-          <td class="label">Saldo pendiente:</td>
-          <td class="valor">${{ "%.2f"|format(saldo) }}</td>
-        </tr>
-      </table>
+      {% if pagado_completo %}
+        {# Ticket ya pagado: un solo total, sin renglones de "pagado"/"saldo"
+           que solo aplican a algo que todavía se está cobrando. #}
+        <table class="totales">
+          <tr class="grande">
+            <td class="label">Total pagado:</td>
+            <td class="valor">${{ "%.2f"|format(total) }}</td>
+          </tr>
+        </table>
+      {% else %}
+        {# Nota pendiente: el saldo es lo que realmente importa, así que se
+           destaca más que el total o el anticipo. #}
+        <table class="totales">
+          <tr>
+            <td class="label">Total:</td>
+            <td class="valor">${{ "%.2f"|format(total) }}</td>
+          </tr>
+          <tr>
+            <td class="label">Anticipo:</td>
+            <td class="valor">${{ "%.2f"|format(pagado) }}</td>
+          </tr>
+          <tr class="saldo-pendiente">
+            <td class="label">Saldo pendiente:</td>
+            <td class="valor">${{ "%.2f"|format(saldo) }}</td>
+          </tr>
+        </table>
+      {% endif %}
 
       <div class="politica">
         NO ACEPTAMOS DEVOLUCIONES.<br>
