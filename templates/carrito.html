@@ -102,15 +102,20 @@
           </select>
         </div>
       </div>
-      <p style="font-size:12px; color:#777; margin:-6px 0 10px">
-        Si dejas vacío el monto pagado, se asume que pagó todo el pedido —
-        excepto si marcas "Es un apartado" abajo, donde vacío significa que no dejó ningún anticipo.
+      <p class="nota">
+        Si dejas vacío el monto pagado, se asume que pagó todo el pedido.
         Si escribes un monto menor, se reparte pagando primero la prenda 1, luego la 2, etc., hasta agotarlo.
       </p>
       <div class="fila-form">
         <div>
-          <label style="display:flex; align-items:center; gap:6px; font-weight:400">
-            <input type="checkbox" id="c_apartado" name="apartado" style="width:auto">
+          <label class="opcion-check">
+            <input type="checkbox" id="c_sin_pago" name="sin_pago">
+            No pagó nada (queda pendiente, sin escribir el monto)
+          </label>
+        </div>
+        <div>
+          <label class="opcion-check">
+            <input type="checkbox" id="c_apartado" name="apartado">
             Es un apartado (no cuenta en reportes hasta que se pague completo)
           </label>
         </div>
@@ -258,6 +263,17 @@
         e.preventDefault();
       }
     });
+
+    // "No pagó nada" deja claro que no hace falta escribir 0 ni dejarlo
+    // vacío a propósito: se limpia y se deshabilita el campo de monto.
+    (function () {
+      var sinPagoEl = document.getElementById('c_sin_pago');
+      var montoEl = document.getElementById('c_monto_pagado');
+      sinPagoEl.addEventListener('change', function () {
+        montoEl.disabled = sinPagoEl.checked;
+        if (sinPagoEl.checked) montoEl.value = '';
+      });
+    })();
   </script>
 
 {% endblock %}

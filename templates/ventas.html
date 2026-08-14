@@ -109,11 +109,16 @@
         </div>
       </div>
       <p class="nota">
-        Si dejas vacío el monto pagado, se asume que ya pagó todo (el total, no solo el subtotal mostrado arriba) —
-        excepto si marcas "Es un apartado" abajo, donde vacío significa que no dejó ningún anticipo.
+        Si dejas vacío el monto pagado, se asume que ya pagó todo (el total, no solo el subtotal mostrado arriba).
         Si escribes un monto menor, la venta queda con saldo pendiente.
       </p>
       <div class="fila-form">
+        <div>
+          <label class="opcion-check">
+            <input type="checkbox" id="v_sin_pago" name="sin_pago">
+            No pagó nada (queda pendiente, sin escribir el monto)
+          </label>
+        </div>
         <div>
           <label class="opcion-check">
             <input type="checkbox" id="v_apartado" name="apartado">
@@ -189,6 +194,17 @@
         document.getElementById('v_sku_error').textContent = 'Escribe un SKU válido antes de continuar.';
       }
     });
+
+    // "No pagó nada" deja claro que no hace falta escribir 0 ni dejarlo
+    // vacío a propósito: se limpia y se deshabilita el campo de monto.
+    (function () {
+      var sinPagoEl = document.getElementById('v_sin_pago');
+      var montoEl = document.getElementById('v_monto_pagado');
+      sinPagoEl.addEventListener('change', function () {
+        montoEl.disabled = sinPagoEl.checked;
+        if (sinPagoEl.checked) montoEl.value = '';
+      });
+    })();
   </script>
 
   <h2>

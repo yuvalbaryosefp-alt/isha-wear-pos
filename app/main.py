@@ -569,6 +569,7 @@ def registrar_venta(
     monto_pagado: str = Form(""),   # opcional: vacío = se asume que pagó todo
     metodo_pago: str = Form("efectivo"),
     apartado: bool = Form(False),  # ej. la prenda ya salió pero no se ha pagado del todo
+    sin_pago: bool = Form(False),  # marca explícita: no pagó nada, no depende de dejar el monto vacío
     identidad: Identidad = Depends(requiere_login),
 ):
     """Registra una venta: descuenta stock y guarda la info financiera y el pago."""
@@ -629,12 +630,17 @@ def registrar_venta(
 
         # Valida el monto pagado ANTES de escribir nada (si no, un error aquí
         # dejaría la venta a medias, porque el bloque ya habría hecho commit).
-        # Si se deja vacío, se asume que pagó todo (el caso más común) — EXCEPTO
-        # si es un apartado, donde vacío significa que no dejó nada de anticipo.
+        # "Sin pago" manda sobre cualquier otra cosa: no hay que recordar
+        # escribir "0" ni dejar el campo vacío del modo correcto. Si no se
+        # marcó, vacío se asume como que pagó todo (el caso más común) —
+        # EXCEPTO si es un apartado, donde vacío significa sin anticipo.
         total_venta = float(precio_unitario) * cantidad_num
-        monto_pagado_num = parsear_dinero(monto_pagado)
-        if monto_pagado_num is None:
-            monto_pagado_num = 0.0 if apartado else total_venta
+        if sin_pago:
+            monto_pagado_num = 0.0
+        else:
+            monto_pagado_num = parsear_dinero(monto_pagado)
+            if monto_pagado_num is None:
+                monto_pagado_num = 0.0 if apartado else total_venta
 
         if monto_pagado_num < 0 or monto_pagado_num > total_venta:
             return RedirectResponse(
@@ -1093,6 +1099,7 @@ def registrar_carrito(
     monto_pagado: str = Form(""),
     metodo_pago: str = Form("efectivo"),
     apartado: bool = Form(False),  # ej. las prendas ya salieron pero no se han pagado del todo
+    sin_pago: bool = Form(False),  # marca explícita: no pagó nada, no depende de dejar el monto vacío
     producto_id: list[int] = Form(...),
     tipo_precio: list[str] = Form(...),
     cantidad: list[str] = Form(...),
@@ -1174,12 +1181,16 @@ def registrar_carrito(
             })
 
         # --- Paso 2: validar el pago combinado ANTES de escribir nada. ---
-        # Igual que en la venta individual: vacío = pagó todo, EXCEPTO si es
-        # un apartado, donde vacío significa que no dejó nada de anticipo.
+        # Igual que en la venta individual: "sin pago" manda sobre todo lo
+        # demás; si no se marcó, vacío = pagó todo, EXCEPTO si es un
+        # apartado, donde vacío significa que no dejó nada de anticipo.
         total_pedido = sum(it["subtotal"] for it in items_resueltos)
-        monto_pagado_num = parsear_dinero(monto_pagado)
-        if monto_pagado_num is None:
-            monto_pagado_num = 0.0 if apartado else total_pedido
+        if sin_pago:
+            monto_pagado_num = 0.0
+        else:
+            monto_pagado_num = parsear_dinero(monto_pagado)
+            if monto_pagado_num is None:
+                monto_pagado_num = 0.0 if apartado else total_pedido
 
         if monto_pagado_num < 0 or monto_pagado_num > total_pedido:
             return RedirectResponse(
