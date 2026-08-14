@@ -72,16 +72,27 @@
               <option value="{{ c.id }}">{{ c.nombre }}</option>
             {% endfor %}
           </select>
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer; font-size:12px; color:var(--rosa)">+ Nueva clienta</summary>
+            <form method="post" action="/clientas" style="display:flex; gap:6px; margin-top:6px">
+              <input type="hidden" name="siguiente" value="/ventas">
+              <input type="text" name="nombre" placeholder="Nombre" style="width:auto; flex:1" required>
+              <input type="text" name="telefono" placeholder="Teléfono" style="width:auto; flex:1">
+              <button type="submit" class="btn-sm">Guardar</button>
+            </form>
+          </details>
         </div>
-        <div>
-          <label for="v_vendedora">Vendedora (opcional)</label>
-          <select id="v_vendedora" name="vendedora_id">
-            <option value="">— Sin vendedora —</option>
-            {% for ve in vendedoras %}
-              <option value="{{ ve.id }}">{{ ve.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
+        {% if identidad.rol == "admin" %}
+          <div>
+            <label for="v_vendedora">Vendedora (opcional)</label>
+            <select id="v_vendedora" name="vendedora_id">
+              <option value="">— Sin vendedora —</option>
+              {% for ve in vendedoras %}
+                <option value="{{ ve.id }}">{{ ve.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
       </div>
       <div class="fila-form">
         <div>
@@ -237,7 +248,7 @@
             <td class="num">${{ "%.2f"|format(v.saldo) }}</td>
             <td>
               <span class="badge {{ v.estado|lower }}">{{ v.estado }}</span>
-              {% if v.saldo > 0 %}
+              {% if v.saldo > 0 and identidad.rol == "admin" %}
                 <form method="post" action="/ventas/{{ v.id }}/apartado" style="margin-top:4px">
                   <input type="hidden" name="valor" value="{{ 'false' if v.apartado else 'true' }}">
                   <button type="submit" class="btn-sm btn-secundario" style="padding:3px 10px; font-size:11px">
@@ -267,7 +278,7 @@
                 <span class="badge" style="background:var(--ambar-suave); color:var(--ambar)">
                   {{ "Devuelta" if v.devolucion_tipo == "devolucion" else "Cambio" }}
                 </span>
-              {% else %}
+              {% elif identidad.rol == "admin" %}
                 <form method="post" action="/ventas/{{ v.id }}/devolucion" style="display:flex; gap:6px; align-items:center"
                       onsubmit="return confirm('¿Registrar esta venta de {{ v.titulo|e }} como devuelta/cambiada? Repone el stock, pero la venta queda en el historial (no se borra).');">
                   <select name="tipo" style="width:105px; padding:5px 7px">
@@ -279,10 +290,12 @@
                     ↩ Registrar
                   </button>
                 </form>
+              {% else %}
+                —
               {% endif %}
             </td>
             <td>
-              {% if not v.devolucion_tipo %}
+              {% if not v.devolucion_tipo and identidad.rol == "admin" %}
                 <form method="post" action="/ventas/{{ v.id }}/eliminar"
                       onsubmit="return confirm('¿Eliminar esta venta de {{ v.titulo|e }}? Se repone el stock. Esta acción no se puede deshacer.');">
                   <button type="submit" class="btn-sm btn-peligro">

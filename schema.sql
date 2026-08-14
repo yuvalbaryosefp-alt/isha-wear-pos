@@ -211,6 +211,14 @@ CREATE TABLE IF NOT EXISTS vendedoras (
 ALTER TABLE ventas ADD COLUMN IF NOT EXISTS vendedora_id BIGINT REFERENCES vendedoras(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_ventas_vendedora ON ventas (vendedora_id);
 
+-- Login propio de cada vendedora (rol restringido: solo registrar ventas,
+-- sin ver números). NULL = esa vendedora todavía no tiene acceso al
+-- sistema (solo existe para atribuirle ventas desde la cuenta admin).
+-- La contraseña se guarda con sal + hash, nunca en claro.
+ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS usuario TEXT UNIQUE;
+ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS clave_hash TEXT;
+ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS clave_salt TEXT;
+
 
 -- ------------------------------------------------------------
 -- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)

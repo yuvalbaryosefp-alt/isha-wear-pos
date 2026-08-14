@@ -10,11 +10,13 @@ Luego abrir en el navegador:  http://127.0.0.1:8000
 """
 
 import csv
+import hashlib
 import io
 import json
 import os
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -60,31 +62,81 @@ CANALES = {
 DIAS_SIN_VENDER_ALERTA = 60
 
 # ---------------------------------------------------------------------------
-# Protección con usuario y contraseña (HTTP Basic Auth).
+# Protección con usuario y contraseña (HTTP Basic Auth), con 2 roles:
+#   - admin: usuario/contraseña únicos en variables de entorno (Railway),
+#     NUNCA en el código. Ve y hace todo.
+#   - vendedora: una fila en la tabla vendedoras con su propio usuario y
+#     contraseña (guardada con sal + hash, nunca en claro). Solo puede
+#     registrar ventas — no ve reportes, caja, costos/márgenes, ni las
+#     ventas de las demás.
 # El navegador muestra un cuadro de login antes de dejar ver cualquier página.
-# Usuario y contraseña viven en variables de entorno (Railway), NUNCA en el código.
 # ---------------------------------------------------------------------------
 seguridad = HTTPBasic()
 
 
-def requiere_login(credenciales: HTTPBasicCredentials = Depends(seguridad)) -> None:
-    usuario_correcto = os.getenv("APP_USUARIO", "admin")
-    clave_correcta = os.getenv("APP_CLAVE", "")
+@dataclass
+class Identidad:
+    rol: str  # "admin" o "vendedora"
+    vendedora_id: int | None = None
+    vendedora_nombre: str | None = None
+
+
+def hash_clave(clave: str, salt: str | None = None) -> tuple[str, str]:
+    """Sal + hash de una contraseña (para guardar o para comparar con una
+    sal ya existente). Devuelve (salt, hash)."""
+    salt = salt or secrets.token_hex(16)
+    hash_ = hashlib.sha256((salt + clave).encode()).hexdigest()
+    return salt, hash_
+
+
+def requiere_login(
+    request: Request, credenciales: HTTPBasicCredentials = Depends(seguridad)
+) -> Identidad:
+    admin_usuario = os.getenv("APP_USUARIO", "admin")
+    admin_clave = os.getenv("APP_CLAVE", "")
 
     # compare_digest evita que un atacante adivine la clave midiendo tiempos de respuesta.
-    usuario_ok = secrets.compare_digest(credenciales.username, usuario_correcto)
-    clave_ok = secrets.compare_digest(credenciales.password, clave_correcta)
+    if secrets.compare_digest(credenciales.username, admin_usuario) and secrets.compare_digest(
+        credenciales.password, admin_clave
+    ):
+        identidad = Identidad(rol="admin")
+        request.state.identidad = identidad
+        return identidad
 
-    if not (usuario_ok and clave_ok):
+    # No es la admin: prueba contra las vendedoras con acceso al sistema.
+    with engine.connect() as conn:
+        fila = conn.execute(text(
+            "SELECT id, nombre, clave_hash, clave_salt FROM vendedoras "
+            "WHERE usuario = :u AND activa = TRUE"
+        ), {"u": credenciales.username}).mappings().one_or_none()
+
+    if fila is not None and fila["clave_hash"] is not None:
+        _, hash_calculado = hash_clave(credenciales.password, fila["clave_salt"])
+        if secrets.compare_digest(hash_calculado, fila["clave_hash"]):
+            identidad = Identidad(rol="vendedora", vendedora_id=fila["id"], vendedora_nombre=fila["nombre"])
+            request.state.identidad = identidad
+            return identidad
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Usuario o contraseña incorrectos.",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+
+def requiere_admin(identidad: Identidad = Depends(requiere_login)) -> None:
+    """Para rutas que solo la administradora puede usar (reportes, caja,
+    costos/márgenes, gestión de clientas/vendedoras/inventario, etc.)."""
+    if identidad.rol != "admin":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos.",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta sección es solo para la administradora.",
         )
 
 
-# dependencies=[...] aplica el login a TODAS las rutas de la app, sin
-# tener que repetirlo una por una.
+# dependencies=[...] aplica el login (cualquiera de los 2 roles) a TODAS las
+# rutas de la app; las rutas que además necesitan ser admin-only agregan
+# dependencies=[Depends(requiere_admin)] en su propio decorador.
 app = FastAPI(title="Inventario Isha Boutique", dependencies=[Depends(requiere_login)])
 
 # Carpeta donde viven las plantillas HTML (se calcula relativa a este archivo).
@@ -233,8 +285,14 @@ def generar_qr_png(texto: str) -> bytes:
 
 
 @app.get("/")
-def pagina_principal(request: Request, error: str | None = None):
-    """Muestra la tabla de productos con su stock por sucursal."""
+def pagina_principal(
+    request: Request, error: str | None = None, identidad: Identidad = Depends(requiere_login)
+):
+    """Muestra la tabla de productos con su stock por sucursal (solo admin;
+    una vendedora entra directo a Ventas, que es lo único que puede usar)."""
+    if identidad.rol != "admin":
+        return RedirectResponse("/ventas", status_code=303)
+
     with engine.connect() as conn:
         sucursales = conn.execute(text(
             "SELECT id, nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
@@ -300,7 +358,7 @@ def pagina_principal(request: Request, error: str | None = None):
     )
 
 
-@app.get("/inventario/exportar.csv")
+@app.get("/inventario/exportar.csv", dependencies=[Depends(requiere_admin)])
 def exportar_inventario():
     """Descarga el catálogo activo con su stock por sucursal en un CSV, para
     el contador o para análisis fuera del sistema."""
@@ -340,7 +398,7 @@ def exportar_inventario():
     )
 
 
-@app.post("/movimientos")
+@app.post("/movimientos", dependencies=[Depends(requiere_admin)])
 def registrar_movimiento(
     background_tasks: BackgroundTasks,
     producto_id: int = Form(...),
@@ -414,7 +472,7 @@ def registrar_movimiento(
     return RedirectResponse("/", status_code=303)
 
 
-@app.post("/movimientos/traspaso")
+@app.post("/movimientos/traspaso", dependencies=[Depends(requiere_admin)])
 def registrar_traspaso(
     background_tasks: BackgroundTasks,
     producto_id: int = Form(...),
@@ -511,6 +569,7 @@ def registrar_venta(
     monto_pagado: str = Form(""),   # opcional: vacío = se asume que pagó todo
     metodo_pago: str = Form("efectivo"),
     apartado: bool = Form(False),  # ej. la prenda ya salió pero no se ha pagado del todo
+    identidad: Identidad = Depends(requiere_login),
 ):
     """Registra una venta: descuenta stock y guarda la info financiera y el pago."""
     canal = canal.strip()
@@ -543,7 +602,12 @@ def registrar_venta(
 
     # Convierte los selects opcionales a número o None (vacío = "Sin ...").
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
-    vendedora_id_num = int(vendedora_id) if vendedora_id.strip() else None
+    # Una vendedora no puede atribuirle la venta a nadie más que a sí misma:
+    # ignora lo que venga del formulario y usa su propia identidad autenticada.
+    if identidad.rol == "vendedora":
+        vendedora_id_num = identidad.vendedora_id
+    else:
+        vendedora_id_num = int(vendedora_id) if vendedora_id.strip() else None
 
     with engine.begin() as conn:
         # Trae los 2 precios de lista y el costo del producto.
@@ -630,8 +694,13 @@ def registrar_venta(
 
 
 @app.get("/ventas")
-def ver_ventas(request: Request, error: str | None = None):
-    """Punto de venta: registrar una venta y ver el estado de pago de todas."""
+def ver_ventas(request: Request, error: str | None = None, identidad: Identidad = Depends(requiere_login)):
+    """Punto de venta: registrar una venta y ver el estado de pago.
+    Una vendedora solo ve SUS PROPIAS ventas, no las de las demás ni el
+    total del negocio; la admin las ve todas."""
+    filtro_vendedora = "AND v.vendedora_id = :mi_vendedora_id" if identidad.rol == "vendedora" else ""
+    params: dict = {"mi_vendedora_id": identidad.vendedora_id} if identidad.rol == "vendedora" else {}
+
     with engine.connect() as conn:
         productos = conn.execute(text(
             "SELECT id, sku, titulo, precio, precio_mayoreo FROM productos "
@@ -661,8 +730,9 @@ def ver_ventas(request: Request, error: str | None = None):
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
             "LEFT JOIN vendedoras ve ON ve.id = v.vendedora_id "
             "LEFT JOIN devoluciones d ON d.venta_id = v.id "
+            f"WHERE 1=1 {filtro_vendedora} "
             "ORDER BY v.creada_en DESC LIMIT 200"
-        )).mappings().all()
+        ), params).mappings().all()
 
         pagos_rows = conn.execute(text(
             "SELECT venta_id, metodo, monto, creado_en FROM pagos ORDER BY creado_en"
@@ -717,6 +787,7 @@ def ver_ventas(request: Request, error: str | None = None):
         "ventas": ventas, "error": error,
         "productos": productos, "productos_json": productos_a_json(productos),
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras,
+        "identidad": identidad,
     })
 
 
@@ -758,7 +829,7 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
     return RedirectResponse("/ventas", status_code=303)
 
 
-@app.post("/ventas/{venta_id}/apartado")
+@app.post("/ventas/{venta_id}/apartado", dependencies=[Depends(requiere_admin)])
 def marcar_apartado(venta_id: int, valor: bool = Form(...)):
     """Marca o desmarca una venta YA registrada como apartado (ej. una que se
     dio de alta antes de que existiera esta opción). Mientras le quede saldo
@@ -773,7 +844,7 @@ def marcar_apartado(venta_id: int, valor: bool = Form(...)):
     return RedirectResponse("/ventas", status_code=303)
 
 
-@app.post("/ventas/{venta_id}/eliminar")
+@app.post("/ventas/{venta_id}/eliminar", dependencies=[Depends(requiere_admin)])
 def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
     """Elimina una venta (ej. una de prueba) y repone el stock que se había
     descontado, para que el inventario no quede descuadrado.
@@ -825,7 +896,7 @@ def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
     return RedirectResponse("/ventas", status_code=303)
 
 
-@app.post("/ventas/{venta_id}/devolucion")
+@app.post("/ventas/{venta_id}/devolucion", dependencies=[Depends(requiere_admin)])
 def registrar_devolucion(
     venta_id: int,
     background_tasks: BackgroundTasks,
@@ -891,7 +962,12 @@ def registrar_devolucion(
 
 
 @app.get("/ventas/nota")
-def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int = Query(default=1)):
+def nota_pedido(
+    request: Request,
+    id: list[int] = Query(default=[]),
+    copias: int = Query(default=1),
+    identidad: Identidad = Depends(requiere_login),
+):
     """Genera una nota de pedido imprimible con varias ventas juntas (ej. las
     10 prendas que se llevó una clienta), seleccionadas con checkboxes en /ventas.
 
@@ -907,6 +983,13 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
 
     ids_stmt = lambda sql: text(sql).bindparams(bindparam("ids", expanding=True))
 
+    # Una vendedora solo puede imprimir notas de SUS PROPIAS ventas, aunque
+    # arme la URL a mano con otros ids.
+    filtro_vendedora = "AND v.vendedora_id = :mi_vendedora_id" if identidad.rol == "vendedora" else ""
+    params = {"ids": id}
+    if identidad.rol == "vendedora":
+        params["mi_vendedora_id"] = identidad.vendedora_id
+
     with engine.connect() as conn:
         filas = conn.execute(ids_stmt(
             "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, "
@@ -915,8 +998,8 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
-            "WHERE v.id IN :ids ORDER BY v.id"
-        ), {"ids": id}).mappings().all()
+            f"WHERE v.id IN :ids {filtro_vendedora} ORDER BY v.id"
+        ), params).mappings().all()
 
         pagos = conn.execute(ids_stmt(
             "SELECT venta_id, monto FROM pagos WHERE venta_id IN :ids"
@@ -975,7 +1058,7 @@ def nota_pedido(request: Request, id: list[int] = Query(default=[]), copias: int
 
 
 @app.get("/ventas/carrito")
-def carrito_venta(request: Request, error: str | None = None):
+def carrito_venta(request: Request, error: str | None = None, identidad: Identidad = Depends(requiere_login)):
     """Formulario para registrar varias ventas de una vez (ej. una clienta
     que se lleva 7 prendas), en lugar de repetir el formulario una por una.
     """
@@ -996,7 +1079,7 @@ def carrito_venta(request: Request, error: str | None = None):
 
     return templates.TemplateResponse(request, "carrito.html", {
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras, "error": error,
-        "productos_json": productos_a_json(productos),
+        "productos_json": productos_a_json(productos), "identidad": identidad,
     })
 
 
@@ -1015,6 +1098,7 @@ def registrar_carrito(
     cantidad: list[str] = Form(...),
     precio: list[str] = Form(...),
     descuento: list[str] = Form(...),
+    identidad: Identidad = Depends(requiere_login),
 ):
     """Registra varias ventas de una sola vez (carrito). Comparten sucursal,
     canal, clienta y un pago combinado que se reparte entre ellas (se va
@@ -1034,7 +1118,10 @@ def registrar_carrito(
         return RedirectResponse("/ventas/carrito?error=Agrega al menos una prenda al carrito.", status_code=303)
 
     cliente_id_num = int(cliente_id) if cliente_id.strip() else None
-    vendedora_id_num = int(vendedora_id) if vendedora_id.strip() else None
+    if identidad.rol == "vendedora":
+        vendedora_id_num = identidad.vendedora_id
+    else:
+        vendedora_id_num = int(vendedora_id) if vendedora_id.strip() else None
 
     with engine.begin() as conn:
         # --- Paso 1: resolver y validar CADA renglón (solo lecturas, nada se
@@ -1156,7 +1243,7 @@ def registrar_carrito(
     return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
-@app.post("/productos")
+@app.post("/productos", dependencies=[Depends(requiere_admin)])
 def crear_producto(
     sku: str = Form(...),
     titulo: str = Form(...),
@@ -1295,7 +1382,7 @@ def foto_producto(producto_id: int):
     return Response(content=bytes(fila["foto"]), media_type=fila["foto_tipo"] or "image/jpeg")
 
 
-@app.get("/productos/{producto_id}/qr")
+@app.get("/productos/{producto_id}/qr", dependencies=[Depends(requiere_admin)])
 def qr_producto(producto_id: int):
     """Código QR con el SKU del producto, para escanearlo con el celular o un
     lector y encontrarlo rápido en el mostrador sin teclearlo."""
@@ -1310,7 +1397,7 @@ def qr_producto(producto_id: int):
     return Response(content=generar_qr_png(sku), media_type="image/png")
 
 
-@app.get("/productos/etiquetas")
+@app.get("/productos/etiquetas", dependencies=[Depends(requiere_admin)])
 def etiquetas_productos(request: Request, id: list[int] = Query(default=[])):
     """Página imprimible con una etiqueta (SKU + QR + título) por cada
     producto seleccionado, para pegar en la prenda o en el precio.
@@ -1334,7 +1421,7 @@ def etiquetas_productos(request: Request, id: list[int] = Query(default=[])):
     return templates.TemplateResponse(request, "etiquetas.html", {"productos": productos})
 
 
-@app.get("/productos/{producto_id}/historial")
+@app.get("/productos/{producto_id}/historial", dependencies=[Depends(requiere_admin)])
 def historial_producto(request: Request, producto_id: int):
     """Ficha de un producto: sus datos y todo su historial de movimientos y ventas."""
     with engine.connect() as conn:
@@ -1377,7 +1464,7 @@ def historial_producto(request: Request, producto_id: int):
     })
 
 
-@app.post("/productos/{producto_id}/eliminar")
+@app.post("/productos/{producto_id}/eliminar", dependencies=[Depends(requiere_admin)])
 def eliminar_producto(producto_id: int):
     """'Elimina' un producto SIN borrarlo de la base: lo marca inactivo.
 
@@ -1391,7 +1478,7 @@ def eliminar_producto(producto_id: int):
     return RedirectResponse("/", status_code=303)
 
 
-@app.post("/productos/{producto_id}/reactivar")
+@app.post("/productos/{producto_id}/reactivar", dependencies=[Depends(requiere_admin)])
 def reactivar_producto(producto_id: int):
     """Deshace un 'eliminar': vuelve a marcar el producto como activo."""
     with engine.begin() as conn:
@@ -1401,7 +1488,7 @@ def reactivar_producto(producto_id: int):
     return RedirectResponse("/desactivados", status_code=303)
 
 
-@app.get("/clientas")
+@app.get("/clientas", dependencies=[Depends(requiere_admin)])
 def ver_clientas(request: Request, error: str | None = None):
     """Lista las clientas con cuánto y cuándo le han comprado (recurrencia)."""
     with engine.connect() as conn:
@@ -1473,8 +1560,16 @@ def crear_clienta(
     email: str = Form(""),
     cumpleanos: str = Form(""),
     notas: str = Form(""),
+    siguiente: str = Form("/clientas"),  # a dónde regresar (una vendedora no puede ver /clientas)
 ):
-    """Da de alta una clienta nueva."""
+    """Da de alta una clienta nueva. Accesible tanto para admin (desde
+    /clientas) como para vendedora (desde /ventas o /ventas/carrito, para
+    poder ligar la venta a una clienta nueva sin ver el resto de clientas)."""
+    # Lista blanca de a dónde se puede regresar, para no abrir un redirect
+    # a cualquier URL que alguien mande en el formulario.
+    if siguiente not in ("/clientas", "/ventas", "/ventas/carrito"):
+        siguiente = "/clientas"
+
     with engine.begin() as conn:
         conn.execute(text(
             "INSERT INTO clientas (nombre, telefono, email, cumpleanos, notas) "
@@ -1486,10 +1581,10 @@ def crear_clienta(
             "cumpleanos": cumpleanos.strip() or None,
             "notas": notas.strip() or None,
         })
-    return RedirectResponse("/clientas", status_code=303)
+    return RedirectResponse(siguiente, status_code=303)
 
 
-@app.post("/clientas/{cliente_id}/abonar")
+@app.post("/clientas/{cliente_id}/abonar", dependencies=[Depends(requiere_admin)])
 def abonar_saldo_clienta(cliente_id: int, monto: str = Form(...), metodo: str = Form("efectivo")):
     """Aplica un pago de la clienta a su saldo pendiente TOTAL, repartido
     entre sus ventas con saldo (la más vieja primero) hasta agotarlo — igual
@@ -1536,7 +1631,7 @@ def abonar_saldo_clienta(cliente_id: int, monto: str = Form(...), metodo: str = 
     return RedirectResponse("/clientas", status_code=303)
 
 
-@app.post("/clientas/{cliente_id}/eliminar")
+@app.post("/clientas/{cliente_id}/eliminar", dependencies=[Depends(requiere_admin)])
 def eliminar_clienta(cliente_id: int):
     """Borra una clienta (ej. un registro duplicado o de prueba).
 
@@ -1554,7 +1649,7 @@ def eliminar_clienta(cliente_id: int):
     return RedirectResponse("/clientas", status_code=303)
 
 
-@app.get("/clientas/{cliente_id}")
+@app.get("/clientas/{cliente_id}", dependencies=[Depends(requiere_admin)])
 def ver_clienta(request: Request, cliente_id: int):
     """Ficha de una clienta: sus datos y su historial completo de compras."""
     with engine.connect() as conn:
@@ -1583,30 +1678,43 @@ def ver_clienta(request: Request, cliente_id: int):
     return templates.TemplateResponse(request, "clienta_detalle.html", {"clienta": clienta, "compras": compras})
 
 
-@app.get("/vendedoras")
+@app.get("/vendedoras", dependencies=[Depends(requiere_admin)])
 def ver_vendedoras(request: Request, error: str | None = None):
     """Lista las vendedoras/empleadas y cuánto ha vendido cada una en total,
     para reportes de comisiones y desempeño."""
     with engine.connect() as conn:
         filas = conn.execute(text(
-            "SELECT ve.id, ve.nombre, ve.activa, "
+            "SELECT ve.id, ve.nombre, ve.activa, ve.usuario, "
             "       COUNT(v.id) AS num_ventas, "
             "       COALESCE(SUM(v.precio_unitario * v.cantidad), 0) AS total_vendido "
             "FROM vendedoras ve "
             "LEFT JOIN ventas v ON v.vendedora_id = ve.id "
-            "GROUP BY ve.id, ve.nombre, ve.activa "
+            "GROUP BY ve.id, ve.nombre, ve.activa, ve.usuario "
             "ORDER BY ve.activa DESC, ve.nombre"
         )).mappings().all()
 
     return templates.TemplateResponse(request, "vendedoras.html", {"vendedoras": filas, "error": error})
 
 
-@app.post("/vendedoras")
-def crear_vendedora(nombre: str = Form(...)):
-    """Da de alta una vendedora/empleada nueva."""
+@app.post("/vendedoras", dependencies=[Depends(requiere_admin)])
+def crear_vendedora(
+    nombre: str = Form(...),
+    usuario: str = Form(""),
+    clave: str = Form(""),
+):
+    """Da de alta una vendedora/empleada nueva. El usuario/contraseña son
+    opcionales: sin ellos, la vendedora existe solo para atribuirle ventas
+    desde la cuenta admin, pero no puede entrar al sistema ella misma."""
     nombre = nombre.strip()
+    usuario = usuario.strip()
     if not nombre:
         return RedirectResponse("/vendedoras?error=El nombre no puede quedar vacío.", status_code=303)
+    if usuario and not clave:
+        return RedirectResponse(
+            "/vendedoras?error=Si le das usuario, también necesita una contraseña.", status_code=303,
+        )
+    if usuario == os.getenv("APP_USUARIO", "admin"):
+        return RedirectResponse("/vendedoras?error=Ese usuario ya lo usa la cuenta admin.", status_code=303)
 
     with engine.begin() as conn:
         ya_existe = conn.execute(text(
@@ -1615,14 +1723,54 @@ def crear_vendedora(nombre: str = Form(...)):
         if ya_existe:
             return RedirectResponse("/vendedoras?error=Ya existe una vendedora con ese nombre.", status_code=303)
 
-        conn.execute(text("INSERT INTO vendedoras (nombre) VALUES (:nombre)"), {"nombre": nombre})
+        if usuario:
+            usuario_ocupado = conn.execute(text(
+                "SELECT 1 FROM vendedoras WHERE usuario = :usuario"
+            ), {"usuario": usuario}).scalar()
+            if usuario_ocupado:
+                return RedirectResponse("/vendedoras?error=Ese usuario ya está en uso.", status_code=303)
+
+        salt, hash_ = hash_clave(clave) if clave else (None, None)
+        conn.execute(text(
+            "INSERT INTO vendedoras (nombre, usuario, clave_hash, clave_salt) "
+            "VALUES (:nombre, :usuario, :hash, :salt)"
+        ), {"nombre": nombre, "usuario": usuario or None, "hash": hash_, "salt": salt})
     return RedirectResponse("/vendedoras", status_code=303)
 
 
-@app.post("/vendedoras/{vendedora_id}/activa")
+@app.post("/vendedoras/{vendedora_id}/clave", dependencies=[Depends(requiere_admin)])
+def cambiar_clave_vendedora(vendedora_id: int, usuario: str = Form(...), clave: str = Form(...)):
+    """Da de alta o cambia el usuario/contraseña de acceso de una vendedora
+    que ya existe (ej. olvidó su contraseña, o no tenía acceso todavía)."""
+    usuario = usuario.strip()
+    if not usuario or not clave:
+        return RedirectResponse("/vendedoras?error=Usuario y contraseña son obligatorios.", status_code=303)
+    if usuario == os.getenv("APP_USUARIO", "admin"):
+        return RedirectResponse("/vendedoras?error=Ese usuario ya lo usa la cuenta admin.", status_code=303)
+
+    with engine.begin() as conn:
+        usuario_ocupado = conn.execute(text(
+            "SELECT 1 FROM vendedoras WHERE usuario = :usuario AND id != :id"
+        ), {"usuario": usuario, "id": vendedora_id}).scalar()
+        if usuario_ocupado:
+            return RedirectResponse("/vendedoras?error=Ese usuario ya está en uso.", status_code=303)
+
+        salt, hash_ = hash_clave(clave)
+        actualizada = conn.execute(text(
+            "UPDATE vendedoras SET usuario = :usuario, clave_hash = :hash, clave_salt = :salt "
+            "WHERE id = :id RETURNING id"
+        ), {"usuario": usuario, "hash": hash_, "salt": salt, "id": vendedora_id}).scalar()
+
+    if actualizada is None:
+        return RedirectResponse("/vendedoras?error=Vendedora no encontrada.", status_code=303)
+    return RedirectResponse("/vendedoras", status_code=303)
+
+
+@app.post("/vendedoras/{vendedora_id}/activa", dependencies=[Depends(requiere_admin)])
 def cambiar_activa_vendedora(vendedora_id: int, valor: bool = Form(...)):
     """Activa o desactiva una vendedora (ej. ya no trabaja ahí), sin borrar
-    su historial de ventas pasadas ni las comisiones ya calculadas."""
+    su historial de ventas pasadas ni las comisiones ya calculadas.
+    Desactivada = tampoco puede entrar al sistema con su usuario/contraseña."""
     with engine.begin() as conn:
         actualizada = conn.execute(text(
             "UPDATE vendedoras SET activa = :valor WHERE id = :id RETURNING id"
@@ -1633,7 +1781,7 @@ def cambiar_activa_vendedora(vendedora_id: int, valor: bool = Form(...)):
     return RedirectResponse("/vendedoras", status_code=303)
 
 
-@app.post("/vendedoras/{vendedora_id}/eliminar")
+@app.post("/vendedoras/{vendedora_id}/eliminar", dependencies=[Depends(requiere_admin)])
 def eliminar_vendedora(vendedora_id: int):
     """Borra una vendedora (ej. un registro duplicado o de prueba).
 
@@ -1652,7 +1800,7 @@ def eliminar_vendedora(vendedora_id: int):
     return RedirectResponse("/vendedoras", status_code=303)
 
 
-@app.get("/desactivados")
+@app.get("/desactivados", dependencies=[Depends(requiere_admin)])
 def ver_desactivados(request: Request):
     """Lista los productos eliminados (inactivos), por si hay que reactivar alguno."""
     with engine.connect() as conn:
@@ -1664,7 +1812,7 @@ def ver_desactivados(request: Request):
     return templates.TemplateResponse(request, "desactivados.html", {"productos": productos})
 
 
-@app.get("/productos/{producto_id}/editar")
+@app.get("/productos/{producto_id}/editar", dependencies=[Depends(requiere_admin)])
 def editar_producto_form(request: Request, producto_id: int, error: str | None = None):
     """Muestra la pantalla para editar un producto (poner precio de venta, ajustar costo,
     y ajustar la cantidad de piezas en cada sucursal)."""
@@ -1695,7 +1843,7 @@ def editar_producto_form(request: Request, producto_id: int, error: str | None =
     })
 
 
-@app.post("/productos/{producto_id}/enviar-a-shopify")
+@app.post("/productos/{producto_id}/enviar-a-shopify", dependencies=[Depends(requiere_admin)])
 def enviar_producto_a_shopify(producto_id: int):
     """Crea en Shopify (como borrador) un producto que se dio de alta en
     isha-wear-pos y todavía no existe allá — botón manual, a propósito NO
@@ -1715,7 +1863,7 @@ def enviar_producto_a_shopify(producto_id: int):
     return RedirectResponse(f"/productos/{producto_id}/editar", status_code=303)
 
 
-@app.post("/productos/{producto_id}/editar")
+@app.post("/productos/{producto_id}/editar", dependencies=[Depends(requiere_admin)])
 def editar_producto(
     producto_id: int,
     background_tasks: BackgroundTasks,
@@ -1877,7 +2025,7 @@ def _resumen(row) -> dict:
     return fila
 
 
-@app.get("/caja")
+@app.get("/caja", dependencies=[Depends(requiere_admin)])
 def corte_caja(request: Request, fecha: str | None = None):
     """Corte de caja diario: cuánto entró en efectivo/tarjeta/transferencia,
     por sucursal, para cuadrar contra la caja física al cerrar.
@@ -1941,7 +2089,7 @@ def corte_caja(request: Request, fecha: str | None = None):
     })
 
 
-@app.get("/ventas/exportar.csv")
+@app.get("/ventas/exportar.csv", dependencies=[Depends(requiere_admin)])
 def exportar_ventas(desde: str | None = None, hasta: str | None = None):
     """Descarga en CSV el detalle de ventas del período (mismo filtro de
     fechas que /reportes), para el contador o análisis fuera del sistema."""
@@ -2001,7 +2149,7 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
     )
 
 
-@app.get("/reportes")
+@app.get("/reportes", dependencies=[Depends(requiere_admin)])
 def reportes(request: Request, desde: str | None = None, hasta: str | None = None):
     """Reporte de ganancia bruta por período, con desglose por categoría, sucursal y canal."""
     # Por defecto, del primer día del mes actual hasta hoy.

@@ -15,10 +15,20 @@
           <label for="nombre">Nombre</label>
           <input type="text" id="nombre" name="nombre" required autocomplete="off">
         </div>
-        <div style="flex:0 0 auto; align-self:flex-end">
-          <button type="submit">Guardar vendedora</button>
+        <div>
+          <label for="usuario">Usuario de acceso (opcional)</label>
+          <input type="text" id="usuario" name="usuario" autocomplete="off">
+        </div>
+        <div>
+          <label for="clave">Contraseña (si le pones usuario)</label>
+          <input type="text" id="clave" name="clave" autocomplete="off">
         </div>
       </div>
+      <p class="nota">
+        Sin usuario/contraseña, la vendedora igual existe (para atribuirle ventas desde tu cuenta),
+        pero no puede entrar al sistema ella misma. Se los puedes poner después con "Dar acceso" en la tabla.
+      </p>
+      <button type="submit">Guardar vendedora</button>
     </form>
   </div>
 
@@ -31,6 +41,7 @@
         <tr>
           <th>Nombre</th>
           <th>Estado</th>
+          <th>Acceso al sistema</th>
           <th>Ventas</th>
           <th>Total vendido</th>
           <th></th>
@@ -45,19 +56,39 @@
                 {{ "Activa" if ve.activa else "Inactiva" }}
               </span>
             </td>
+            <td>
+              {% if ve.usuario %}
+                <span class="badge apartado">Usuario: {{ ve.usuario }}</span>
+              {% else %}
+                <span style="color:var(--texto-tenue); font-size:12.5px">Sin acceso</span>
+              {% endif %}
+            </td>
             <td class="num">{{ ve.num_ventas }}</td>
             <td class="num">${{ "%.2f"|format(ve.total_vendido) }}</td>
-            <td style="display:flex; gap:6px">
-              <form method="post" action="/vendedoras/{{ ve.id }}/activa">
-                <input type="hidden" name="valor" value="{{ 'false' if ve.activa else 'true' }}">
-                <button type="submit" class="btn-sm btn-secundario">
-                  {{ "Desactivar" if ve.activa else "Activar" }}
-                </button>
-              </form>
-              <form method="post" action="/vendedoras/{{ ve.id }}/eliminar"
-                    onsubmit="return confirm('¿Eliminar a {{ ve.nombre|e }}? Sus ventas pasadas se quedan en el historial, solo se les quita el nombre. Esta acción no se puede deshacer.');">
-                <button type="submit" class="btn-sm btn-peligro">Eliminar</button>
-              </form>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap">
+                <form method="post" action="/vendedoras/{{ ve.id }}/activa">
+                  <input type="hidden" name="valor" value="{{ 'false' if ve.activa else 'true' }}">
+                  <button type="submit" class="btn-sm btn-secundario">
+                    {{ "Desactivar" if ve.activa else "Activar" }}
+                  </button>
+                </form>
+                <form method="post" action="/vendedoras/{{ ve.id }}/eliminar"
+                      onsubmit="return confirm('¿Eliminar a {{ ve.nombre|e }}? Sus ventas pasadas se quedan en el historial, solo se les quita el nombre. Esta acción no se puede deshacer.');">
+                  <button type="submit" class="btn-sm btn-peligro">Eliminar</button>
+                </form>
+              </div>
+              <details style="margin-top:6px">
+                <summary style="cursor:pointer; font-size:12px; color:var(--rosa)">
+                  {{ "Cambiar contraseña" if ve.usuario else "Dar acceso" }}
+                </summary>
+                <form method="post" action="/vendedoras/{{ ve.id }}/clave" style="display:flex; gap:6px; margin-top:6px">
+                  <input type="text" name="usuario" placeholder="Usuario" value="{{ ve.usuario or '' }}"
+                         style="width:auto" required>
+                  <input type="text" name="clave" placeholder="Contraseña nueva" style="width:auto" required>
+                  <button type="submit" class="btn-sm">Guardar</button>
+                </form>
+              </details>
             </td>
           </tr>
         {% endfor %}
@@ -69,7 +100,8 @@
   {% endif %}
   <p class="nota">
     Para alguien que ya no trabaja ahí pero cuyo historial quieres conservar, mejor desactívala en vez de eliminarla —
-    sigue apareciendo en los reportes de ventas pasadas, pero ya no aparece como opción al registrar una venta nueva.
+    sigue apareciendo en los reportes de ventas pasadas, pero ya no aparece como opción al registrar una venta nueva
+    ni puede entrar al sistema con su usuario.
   </p>
 
 {% endblock %}

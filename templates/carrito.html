@@ -41,16 +41,27 @@
               <option value="{{ c.id }}">{{ c.nombre }}</option>
             {% endfor %}
           </select>
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer; font-size:12px; color:var(--rosa)">+ Nueva clienta</summary>
+            <form method="post" action="/clientas" style="display:flex; gap:6px; margin-top:6px">
+              <input type="hidden" name="siguiente" value="/ventas/carrito">
+              <input type="text" name="nombre" placeholder="Nombre" style="width:auto; flex:1" required>
+              <input type="text" name="telefono" placeholder="Teléfono" style="width:auto; flex:1">
+              <button type="submit" class="btn-sm">Guardar</button>
+            </form>
+          </details>
         </div>
-        <div>
-          <label for="c_vendedora">Vendedora (opcional)</label>
-          <select id="c_vendedora" name="vendedora_id">
-            <option value="">— Sin vendedora —</option>
-            {% for ve in vendedoras %}
-              <option value="{{ ve.id }}">{{ ve.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
+        {% if identidad.rol == "admin" %}
+          <div>
+            <label for="c_vendedora">Vendedora (opcional)</label>
+            <select id="c_vendedora" name="vendedora_id">
+              <option value="">— Sin vendedora —</option>
+              {% for ve in vendedoras %}
+                <option value="{{ ve.id }}">{{ ve.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
       </div>
 
       <h2 style="margin-top:22px">Prendas</h2>
