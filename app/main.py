@@ -700,9 +700,12 @@ def registrar_venta(
             ), {"v": venta_id, "metodo": metodo_pago, "monto": monto_pagado_num})
 
     background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
+    # Lleva directo a la nota de pedido imprimible, igual que ya hacía la
+    # venta múltiple — no hay que ir a /ventas a marcarla y darle imprimir.
+    query = f"id={venta_id}"
     if cambio > 0:
-        return RedirectResponse(f"/ventas?cambio={cambio:.2f}", status_code=303)
-    return RedirectResponse("/ventas", status_code=303)
+        query += f"&cambio={cambio:.2f}"
+    return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
 @app.get("/ventas")

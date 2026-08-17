@@ -189,5 +189,14 @@
   {% endfor %}
 
   <button class="imprimir" onclick="window.print()">Imprimir</button>
+
+  <script>
+    // Se manda a imprimir sola al abrir esta página — no hace falta darle
+    // clic al botón. Se deja el botón por si el navegador bloquea el
+    // diálogo automático o hace falta reimprimir sin recargar.
+    window.addEventListener('load', function () {
+      window.print();
+    });
+  </script>
 </body>
 </html>
