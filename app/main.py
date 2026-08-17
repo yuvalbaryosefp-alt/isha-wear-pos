@@ -1591,6 +1591,7 @@ def ver_clientas(request: Request, error: str | None = None):
 
 @app.post("/clientas")
 def crear_clienta(
+    request: Request,
     nombre: str = Form(...),
     telefono: str = Form(""),
     email: str = Form(""),
@@ -1600,23 +1601,35 @@ def crear_clienta(
 ):
     """Da de alta una clienta nueva. Accesible tanto para admin (desde
     /clientas) como para vendedora (desde /ventas o /ventas/carrito, para
-    poder ligar la venta a una clienta nueva sin ver el resto de clientas)."""
+    poder ligar la venta a una clienta nueva sin ver el resto de clientas).
+
+    El "+ Nueva clienta" de /ventas y /ventas/carrito la manda por fetch()
+    (Accept: application/json) para agregarla al selector de Clienta sin
+    recargar la página entera — si no, se pierde todo lo demás que ya se
+    había llenado del formulario de venta. La pide así en vez de un
+    redirect normal.
+    """
+    nombre = nombre.strip()
     # Lista blanca de a dónde se puede regresar, para no abrir un redirect
     # a cualquier URL que alguien mande en el formulario.
     if siguiente not in ("/clientas", "/ventas", "/ventas/carrito"):
         siguiente = "/clientas"
 
     with engine.begin() as conn:
-        conn.execute(text(
+        nueva_id = conn.execute(text(
             "INSERT INTO clientas (nombre, telefono, email, cumpleanos, notas) "
-            "VALUES (:nombre, :telefono, :email, :cumpleanos, :notas)"
+            "VALUES (:nombre, :telefono, :email, :cumpleanos, :notas) "
+            "RETURNING id"
         ), {
-            "nombre": nombre.strip(),
+            "nombre": nombre,
             "telefono": telefono.strip() or None,
             "email": email.strip() or None,
             "cumpleanos": cumpleanos.strip() or None,
             "notas": notas.strip() or None,
-        })
+        }).scalar_one()
+
+    if "application/json" in request.headers.get("accept", ""):
+        return {"id": nueva_id, "nombre": nombre}
     return RedirectResponse(siguiente, status_code=303)
 
 

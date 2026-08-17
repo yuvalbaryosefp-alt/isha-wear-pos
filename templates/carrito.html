@@ -41,7 +41,7 @@
               <option value="{{ c.id }}">{{ c.nombre }}</option>
             {% endfor %}
           </select>
-          <details style="margin-top:6px">
+          <details id="c_nueva_clienta_details" style="margin-top:6px">
             <summary style="cursor:pointer; font-size:12px; color:var(--rosa)">+ Nueva clienta</summary>
             {# No es un <form> a propósito: un <form> no puede ir anidado dentro
                de otro <form> (aquí, el del carrito) — el navegador cierra el
@@ -281,19 +281,36 @@
     })();
 
     // Da de alta la clienta nueva por separado (no es un <form> anidado,
-    // ver el comentario junto a "+ Nueva clienta" arriba) y recarga para
-    // que ya aparezca en el selector de Clienta.
+    // ver el comentario junto a "+ Nueva clienta" arriba). Agrega la opción
+    // al selector de Clienta al vuelo, SIN recargar la página — recargar
+    // borraría todas las prendas que ya se habían agregado al carrito.
     function guardarNuevaClienta() {
       var nombreEl = document.getElementById('c_nueva_clienta_nombre');
+      var telefonoEl = document.getElementById('c_nueva_clienta_telefono');
       var nombre = nombreEl.value.trim();
       if (!nombre) {
         alert('Escribe el nombre de la clienta.');
         return;
       }
-      var telefono = document.getElementById('c_nueva_clienta_telefono').value.trim();
-      var datos = new URLSearchParams({ nombre: nombre, telefono: telefono, siguiente: '/ventas/carrito' });
-      fetch('/clientas', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: datos })
-        .then(function () { location.reload(); })
+      var datos = new URLSearchParams({ nombre: nombre, telefono: telefonoEl.value.trim(), siguiente: '/ventas/carrito' });
+      fetch('/clientas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: datos,
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (clienta) {
+          var select = document.getElementById('c_clienta');
+          var opcion = document.createElement('option');
+          opcion.value = clienta.id;
+          opcion.textContent = clienta.nombre;
+          select.appendChild(opcion);
+          select.value = clienta.id;
+
+          nombreEl.value = '';
+          telefonoEl.value = '';
+          document.getElementById('c_nueva_clienta_details').open = false;
+        })
         .catch(function () { alert('No se pudo guardar la clienta, intenta de nuevo.'); });
     }
   </script>
