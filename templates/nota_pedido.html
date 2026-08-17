@@ -139,12 +139,24 @@
 
       {% if pagado_completo %}
         {# Ticket ya pagado: un solo total, sin renglones de "pagado"/"saldo"
-           que solo aplican a algo que todavía se está cobrando. #}
+           que solo aplican a algo que todavía se está cobrando. Si dio más
+           de lo que costaba (pagó en efectivo con un billete grande),
+           también se anota lo recibido y el cambio entregado. #}
         <table class="totales">
           <tr class="grande">
             <td class="label">Total pagado:</td>
             <td class="valor">${{ "%.2f"|format(total) }}</td>
           </tr>
+          {% if cambio %}
+            <tr>
+              <td class="label">Recibido:</td>
+              <td class="valor">${{ "%.2f"|format(total + cambio|float) }}</td>
+            </tr>
+            <tr>
+              <td class="label">Cambio:</td>
+              <td class="valor">${{ "%.2f"|format(cambio|float) }}</td>
+            </tr>
+          {% endif %}
         </table>
       {% else %}
         {# Nota pendiente: el saldo es lo que realmente importa, así que se

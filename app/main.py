@@ -642,11 +642,15 @@ def registrar_venta(
             if monto_pagado_num is None:
                 monto_pagado_num = 0.0 if apartado else total_venta
 
-        if monto_pagado_num < 0 or monto_pagado_num > total_venta:
-            return RedirectResponse(
-                f"/ventas?error=El monto pagado debe estar entre 0 y el total (${total_venta:.2f}).",
-                status_code=303,
-            )
+        if monto_pagado_num < 0:
+            return RedirectResponse("/ventas?error=El monto pagado no puede ser negativo.", status_code=303)
+
+        # Si dio más de lo que cuesta (ej. pagó $1700 en efectivo de una
+        # venta de $1650), lo que se registra como pagado es el total —no
+        # más— y la diferencia es cambio que se le regresa, no un saldo a
+        # favor ni dinero que de verdad haya entrado a la caja.
+        cambio = round(max(0.0, monto_pagado_num - total_venta), 2)
+        monto_pagado_num = min(monto_pagado_num, total_venta)
 
         # Verifica que haya stock suficiente en esa sucursal.
         actual = conn.execute(text(
@@ -696,11 +700,18 @@ def registrar_venta(
             ), {"v": venta_id, "metodo": metodo_pago, "monto": monto_pagado_num})
 
     background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
+    if cambio > 0:
+        return RedirectResponse(f"/ventas?cambio={cambio:.2f}", status_code=303)
     return RedirectResponse("/ventas", status_code=303)
 
 
 @app.get("/ventas")
-def ver_ventas(request: Request, error: str | None = None, identidad: Identidad = Depends(requiere_login)):
+def ver_ventas(
+    request: Request,
+    error: str | None = None,
+    cambio: str | None = None,
+    identidad: Identidad = Depends(requiere_login),
+):
     """Punto de venta: registrar una venta y ver el estado de pago.
     Una vendedora solo ve SUS PROPIAS ventas, no las de las demás ni el
     total del negocio; la admin las ve todas."""
@@ -790,7 +801,7 @@ def ver_ventas(request: Request, error: str | None = None, identidad: Identidad 
         })
 
     return templates.TemplateResponse(request, "ventas.html", {
-        "ventas": ventas, "error": error,
+        "ventas": ventas, "error": error, "cambio": cambio,
         "productos": productos, "productos_json": productos_a_json(productos),
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras,
         "identidad": identidad,
@@ -972,6 +983,7 @@ def nota_pedido(
     request: Request,
     id: list[int] = Query(default=[]),
     copias: int = Query(default=1),
+    cambio: float = Query(default=0.0),
     identidad: Identidad = Depends(requiere_login),
 ):
     """Genera una nota de pedido imprimible con varias ventas juntas (ej. las
@@ -1067,6 +1079,7 @@ def nota_pedido(
         "sucursal": sucursal_nombre,
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
+        "cambio": cambio,
     })
 
 
@@ -1199,11 +1212,14 @@ def registrar_carrito(
             if monto_pagado_num is None:
                 monto_pagado_num = 0.0 if apartado else total_pedido
 
-        if monto_pagado_num < 0 or monto_pagado_num > total_pedido:
-            return RedirectResponse(
-                f"/ventas/carrito?error=El monto pagado debe estar entre 0 y el total (${total_pedido:.2f}).",
-                status_code=303,
-            )
+        if monto_pagado_num < 0:
+            return RedirectResponse("/ventas/carrito?error=El monto pagado no puede ser negativo.", status_code=303)
+
+        # Igual que en la venta individual: si dio más de lo que cuesta el
+        # pedido, lo pagado se topa en el total y la diferencia es cambio
+        # a entregar, no un saldo a favor ni dinero que entró a la caja.
+        cambio = round(max(0.0, monto_pagado_num - total_pedido), 2)
+        monto_pagado_num = min(monto_pagado_num, total_pedido)
 
         # --- Paso 3: ya validado todo; ahora sí se descuenta stock y se crea cada venta. ---
         # Un solo pedido_id compartido: todas las prendas del carrito son
@@ -1258,6 +1274,8 @@ def registrar_carrito(
 
     # Lleva directo a la nota de pedido imprimible con las ventas recién creadas.
     query = "&".join(f"id={vid}" for vid in venta_ids)
+    if cambio > 0:
+        query += f"&cambio={cambio:.2f}"
     return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 

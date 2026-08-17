@@ -5,6 +5,9 @@
   {% if error %}
     <div class="aviso">{{ error }}</div>
   {% endif %}
+  {% if cambio %}
+    <div class="aviso-ok">💵 Cambio a entregar: ${{ "%.2f"|format(cambio|float) }}</div>
+  {% endif %}
 
   {# ---------- Formulario para registrar una venta (1 sola prenda) ---------- #}
   <h2>Registrar venta</h2>
