@@ -1011,11 +1011,12 @@ def nota_pedido(
     with engine.connect() as conn:
         filas = conn.execute(ids_stmt(
             "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, "
-            "       v.numero_nota, s.nombre AS sucursal "
+            "       v.numero_nota, s.nombre AS sucursal, ve.nombre AS vendedora "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
+            "LEFT JOIN vendedoras ve ON ve.id = v.vendedora_id "
             f"WHERE v.id IN :ids {filtro_vendedora} ORDER BY v.id"
         ), params).mappings().all()
 
@@ -1037,6 +1038,7 @@ def nota_pedido(
     clientas_distintas = set()
     numeros_distintos = set()
     sucursales_distintas = set()
+    vendedoras_distintas = set()
     for f in filas:
         subtotal = float(f["precio_unitario"]) * f["cantidad"]
         total += subtotal
@@ -1044,6 +1046,7 @@ def nota_pedido(
         clientas_distintas.add(f["clienta"])
         numeros_distintos.add(f["numero_nota"])
         sucursales_distintas.add(f["sucursal"])
+        vendedoras_distintas.add(f["vendedora"])
         items.append({
             "titulo": f["titulo"], "sku": f["sku"],
             "cantidad": f["cantidad"], "precio_unitario": float(f["precio_unitario"]),
@@ -1062,6 +1065,10 @@ def nota_pedido(
     # así que en la nota se muestra junto con la sede para no confundirlos.
     sucursal_nombre = next(iter(sucursales_distintas)) if len(sucursales_distintas) == 1 else None
 
+    # Igual: si todas las ventas seleccionadas las atendió la misma
+    # vendedora, se muestra su nombre; si se mezclan (o ninguna tiene), en blanco.
+    vendedora_nombre = next(iter(vendedoras_distintas)) if len(vendedoras_distintas) == 1 else None
+
     saldo = round(total - pagado_total, 2)
 
     return templates.TemplateResponse(request, "nota_pedido.html", {
@@ -1075,6 +1082,7 @@ def nota_pedido(
         # duda de si todavía se debe algo.
         "pagado_completo": saldo <= 0,
         "clienta": clienta_nombre,
+        "vendedora": vendedora_nombre,
         "numero_nota": numero_nota,
         "sucursal": sucursal_nombre,
         "fecha": datetime.now(ZONA_CDMX),
