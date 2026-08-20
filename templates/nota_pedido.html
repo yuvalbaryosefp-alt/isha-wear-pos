@@ -133,8 +133,8 @@
           <div class="item">
             <div class="item-titulo"><span class="item-sku">{{ it.sku }}</span> {{ it.titulo }}</div>
             <div class="item-detalle">
-              <span>{{ it.cantidad }} × ${{ "%.2f"|format(it.precio_unitario) }}</span>
-              <span class="item-subtotal">${{ "%.2f"|format(it.subtotal) }}</span>
+              <span>{{ it.cantidad }} × Precio: ${{ "%.2f"|format(it.precio_unitario) }}</span>
+              <span class="item-subtotal">Importe: ${{ "%.2f"|format(it.subtotal) }}</span>
             </div>
           </div>
         {% endfor %}
