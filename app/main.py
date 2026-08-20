@@ -846,7 +846,9 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
             "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
         ), {"v": venta_id, "metodo": metodo, "monto": monto_num})
 
-    return RedirectResponse("/ventas", status_code=303)
+    # Manda directo al comprobante imprimible del abono, en vez de solo
+    # regresar a la lista.
+    return RedirectResponse(f"/ventas/nota?id={venta_id}", status_code=303)
 
 
 @app.post("/ventas/{venta_id}/apartado", dependencies=[Depends(requiere_admin)])
@@ -1687,6 +1689,7 @@ def abonar_saldo_clienta(
             )
 
         restante = monto_num
+        ventas_tocadas = []
         for v in ventas_deuda:
             if restante <= 0:
                 break
@@ -1694,9 +1697,14 @@ def abonar_saldo_clienta(
             conn.execute(text(
                 "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
             ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
+            ventas_tocadas.append(v["id"])
             restante -= pago_este
 
-    return RedirectResponse(siguiente, status_code=303)
+    # Manda directo al comprobante imprimible de lo que se acaba de abonar
+    # (las ventas que de verdad recibieron parte del pago, sin importar a
+    # cuántas notas distintas pertenecían), en vez de solo regresar.
+    query = "&".join(f"id={vid}" for vid in ventas_tocadas)
+    return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
 @app.post("/clientas/{cliente_id}/notas/abonar", dependencies=[Depends(requiere_admin)])
@@ -1749,7 +1757,10 @@ def abonar_nota(
             ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
             restante -= pago_este
 
-    return RedirectResponse(f"/clientas/{cliente_id}", status_code=303)
+    # Manda directo al comprobante imprimible de esta nota completa (todas
+    # sus prendas, no solo las que tocó este abono en particular).
+    query = "&".join(f"id={vid}" for vid in id)
+    return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
 @app.post("/clientas/{cliente_id}/eliminar", dependencies=[Depends(requiere_admin)])
