@@ -1645,18 +1645,26 @@ def crear_clienta(
 
 
 @app.post("/clientas/{cliente_id}/abonar", dependencies=[Depends(requiere_admin)])
-def abonar_saldo_clienta(cliente_id: int, monto: str = Form(...), metodo: str = Form("efectivo")):
-    """Aplica un pago de la clienta a su saldo pendiente TOTAL, repartido
-    entre sus ventas con saldo (la más vieja primero) hasta agotarlo — igual
-    que pagar varias cosas con un solo billete, pero entre visitas distintas
-    en vez de en un solo carrito."""
+def abonar_saldo_clienta(
+    cliente_id: int,
+    monto: str = Form(...),
+    metodo: str = Form("efectivo"),
+    siguiente: str = Form("/clientas"),  # a dónde regresar: la lista, o la ficha de la clienta
+):
+    """Aplica un pago de la clienta a su saldo pendiente TOTAL (todas sus
+    notas juntas), repartido entre sus ventas con saldo (la más vieja
+    primero) hasta agotarlo. Para abonar solo UNA nota/ocasión en vez de
+    toda la cuenta, ver abonar_nota."""
+    if siguiente not in ("/clientas", f"/clientas/{cliente_id}"):
+        siguiente = "/clientas"
+
     metodo = metodo.strip()
     if metodo not in ("efectivo", "tarjeta", "transferencia"):
-        return RedirectResponse("/clientas?error=Método de pago inválido.", status_code=303)
+        return RedirectResponse(f"{siguiente}?error=Método de pago inválido.", status_code=303)
 
     monto_num = parsear_dinero(monto)
     if monto_num is None or monto_num <= 0:
-        return RedirectResponse("/clientas?error=El monto del abono debe ser mayor a 0.", status_code=303)
+        return RedirectResponse(f"{siguiente}?error=El monto del abono debe ser mayor a 0.", status_code=303)
 
     with engine.begin() as conn:
         ventas_deuda = conn.execute(text(
@@ -1671,10 +1679,10 @@ def abonar_saldo_clienta(cliente_id: int, monto: str = Form(...), metodo: str = 
 
         saldo_total = round(sum(float(v["saldo"]) for v in ventas_deuda), 2)
         if saldo_total <= 0:
-            return RedirectResponse("/clientas?error=Esta clienta no tiene saldo pendiente.", status_code=303)
+            return RedirectResponse(f"{siguiente}?error=Esta clienta no tiene saldo pendiente.", status_code=303)
         if monto_num > saldo_total:
             return RedirectResponse(
-                f"/clientas?error=El abono (${monto_num:.2f}) es mayor a la deuda total (${saldo_total:.2f}).",
+                f"{siguiente}?error=El abono (${monto_num:.2f}) es mayor a la deuda total (${saldo_total:.2f}).",
                 status_code=303,
             )
 
@@ -1688,7 +1696,60 @@ def abonar_saldo_clienta(cliente_id: int, monto: str = Form(...), metodo: str = 
             ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
             restante -= pago_este
 
-    return RedirectResponse("/clientas", status_code=303)
+    return RedirectResponse(siguiente, status_code=303)
+
+
+@app.post("/clientas/{cliente_id}/notas/abonar", dependencies=[Depends(requiere_admin)])
+def abonar_nota(
+    cliente_id: int,
+    id: list[int] = Form(...),  # las ventas de ESA nota/ocasión nada más
+    monto: str = Form(...),
+    metodo: str = Form("efectivo"),
+):
+    """Aplica un pago a UNA sola nota (una ocasión/visita de compra), no a
+    toda la cuenta de la clienta — repartido entre las ventas de esa nota,
+    la más vieja primero, hasta agotarlo. Ver abonar_saldo_clienta para
+    abonar a la cuenta completa en vez de a una nota en particular."""
+    metodo = metodo.strip()
+    if metodo not in ("efectivo", "tarjeta", "transferencia"):
+        return RedirectResponse(f"/clientas/{cliente_id}?error=Método de pago inválido.", status_code=303)
+
+    monto_num = parsear_dinero(monto)
+    if monto_num is None or monto_num <= 0:
+        return RedirectResponse(f"/clientas/{cliente_id}?error=El monto del abono debe ser mayor a 0.", status_code=303)
+
+    ids_stmt = lambda sql: text(sql).bindparams(bindparam("ids", expanding=True))
+    with engine.begin() as conn:
+        ventas_deuda = conn.execute(ids_stmt(
+            "SELECT v.id, (v.precio_unitario * v.cantidad) - COALESCE(pv.pagado, 0) AS saldo "
+            "FROM ventas v "
+            "LEFT JOIN (SELECT venta_id, SUM(monto) AS pagado FROM pagos GROUP BY venta_id) pv "
+            "       ON pv.venta_id = v.id "
+            "WHERE v.id IN :ids AND v.cliente_id = :cliente_id "
+            "  AND (v.precio_unitario * v.cantidad) > COALESCE(pv.pagado, 0) "
+            "ORDER BY v.id ASC"
+        ), {"ids": id, "cliente_id": cliente_id}).mappings().all()
+
+        saldo_nota = round(sum(float(v["saldo"]) for v in ventas_deuda), 2)
+        if saldo_nota <= 0:
+            return RedirectResponse(f"/clientas/{cliente_id}?error=Esta nota no tiene saldo pendiente.", status_code=303)
+        if monto_num > saldo_nota:
+            return RedirectResponse(
+                f"/clientas/{cliente_id}?error=El abono (${monto_num:.2f}) es mayor al saldo de esta nota (${saldo_nota:.2f}).",
+                status_code=303,
+            )
+
+        restante = monto_num
+        for v in ventas_deuda:
+            if restante <= 0:
+                break
+            pago_este = min(restante, float(v["saldo"]))
+            conn.execute(text(
+                "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
+            ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
+            restante -= pago_este
+
+    return RedirectResponse(f"/clientas/{cliente_id}", status_code=303)
 
 
 @app.post("/clientas/{cliente_id}/eliminar", dependencies=[Depends(requiere_admin)])
@@ -1710,8 +1771,11 @@ def eliminar_clienta(cliente_id: int):
 
 
 @app.get("/clientas/{cliente_id}", dependencies=[Depends(requiere_admin)])
-def ver_clienta(request: Request, cliente_id: int):
-    """Ficha de una clienta: sus datos y su historial completo de compras."""
+def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
+    """Ficha de una clienta: sus datos y su historial de compras, agrupado
+    POR NOTA (cada visita/ocasión de compra por separado), no todo junto.
+    Cada nota trae su propio total/pagado/saldo y se puede abonar o
+    imprimir por separado, además del abono general a toda su cuenta."""
     with engine.connect() as conn:
         clienta = conn.execute(text(
             "SELECT id, nombre, telefono, email, cumpleanos, notas FROM clientas WHERE id = :id"
@@ -1721,21 +1785,62 @@ def ver_clienta(request: Request, cliente_id: int):
             return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
 
         compras_rows = conn.execute(text(
-            "SELECT v.id, v.creada_en, p.titulo, v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
-            "       v.canal, v.tipo_precio, v.descuento_pct "
+            "SELECT v.id, v.creada_en, v.pedido_id, v.numero_nota, p.titulo, p.sku, "
+            "       v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
+            "       v.canal, v.tipo_precio, v.descuento_pct, "
+            "       COALESCE((SELECT SUM(monto) FROM pagos WHERE venta_id = v.id), 0) AS pagado_venta "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
-            "WHERE v.cliente_id = :id ORDER BY v.creada_en DESC"
+            "WHERE v.cliente_id = :id ORDER BY v.creada_en DESC, v.id DESC"
         ), {"id": cliente_id}).mappings().all()
 
-    compras = []
+    # Agrupa por "ticket" (pedido_id si vino de un carrito con varias
+    # prendas; si no, su propio id — igual que el ticket promedio en
+    # /reportes). El orden de aparición de las llaves sigue el de las filas
+    # (ya vienen de más reciente a más vieja).
+    notas_por_clave: dict[str, dict] = {}
+    orden_claves: list[str] = []
     for c in compras_rows:
-        d = dict(c)
-        d["creada_en"] = d["creada_en"].astimezone(ZONA_CDMX)
-        compras.append(d)
+        clave = c["pedido_id"] or f"v{c['id']}"
+        if clave not in notas_por_clave:
+            notas_por_clave[clave] = {
+                "clave": clave,
+                "venta_ids": [],
+                # Nombrado "prendas", no "items": un dict de Python ya trae un
+                # método .items() propio, y en Jinja "n.items" con notación de
+                # punto resuelve a ESE método antes que a una llave "items" —
+                # necesitaría "n['items']" para no chocar. Más simple usar
+                # otro nombre y ya.
+                "prendas": [],
+                "numero_nota": c["numero_nota"],
+                "sucursal": c["sucursal"],
+                "fecha": c["creada_en"].astimezone(ZONA_CDMX),
+                "total": 0.0,
+                "pagado": 0.0,
+            }
+            orden_claves.append(clave)
+        nota = notas_por_clave[clave]
+        subtotal = float(c["precio_unitario"]) * c["cantidad"]
+        nota["venta_ids"].append(c["id"])
+        nota["prendas"].append({
+            "titulo": c["titulo"], "sku": c["sku"], "cantidad": c["cantidad"],
+            "precio_unitario": float(c["precio_unitario"]), "subtotal": subtotal,
+        })
+        nota["total"] += subtotal
+        nota["pagado"] += float(c["pagado_venta"])
 
-    return templates.TemplateResponse(request, "clienta_detalle.html", {"clienta": clienta, "compras": compras})
+    notas = []
+    for clave in orden_claves:
+        nota = notas_por_clave[clave]
+        nota["saldo"] = round(nota["total"] - nota["pagado"], 2)
+        notas.append(nota)
+
+    saldo_total_clienta = round(sum(n["saldo"] for n in notas), 2)
+
+    return templates.TemplateResponse(request, "clienta_detalle.html", {
+        "clienta": clienta, "notas": notas, "saldo_total_clienta": saldo_total_clienta, "error": error,
+    })
 
 
 @app.get("/vendedoras", dependencies=[Depends(requiere_admin)])
