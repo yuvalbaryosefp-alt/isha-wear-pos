@@ -148,8 +148,22 @@
       PRODUCTOS_POR_ID[p.id] = p;
     });
 
-    function buscarProductoPorSku(sku) {
-      return PRODUCTOS_POR_SKU[sku.trim().toUpperCase()] || null;
+    function buscarProductoPorSku(texto) {
+      texto = texto.trim();
+      if (!texto) return null;
+
+      var directo = PRODUCTOS_POR_SKU[texto.toUpperCase()];
+      if (directo) return directo;
+
+      // No es un SKU exacto: prueba por nombre — si el texto aparece en el
+      // nombre de UN SOLO producto, lo resuelve igual que si hubiera
+      // escrito su SKU. Si hay varias coincidencias, no elige por ti (el
+      // desplegable ya sugiere las opciones mientras escribes).
+      var textoMayus = texto.toUpperCase();
+      var coincidencias = PRODUCTOS.filter(function (p) {
+        return p.texto.toUpperCase().indexOf(textoMayus) !== -1;
+      });
+      return coincidencias.length === 1 ? coincidencias[0] : null;
     }
 
     // Avisa AL MOMENTO si no hay suficiente stock en la sucursal elegida,
@@ -237,8 +251,14 @@
           validarStockFila(tr);
         } else {
           idEl.value = '';
-          errorEl.textContent = 'No encontrado.';
           fotoEl.style.display = 'none';
+          var textoMayus = skuEl.value.trim().toUpperCase();
+          var numCoincidencias = PRODUCTOS.filter(function (p) {
+            return p.texto.toUpperCase().indexOf(textoMayus) !== -1;
+          }).length;
+          errorEl.textContent = numCoincidencias > 1
+            ? numCoincidencias + ' coincidencias, elige una del menú.'
+            : 'No encontrado.';
         }
         recalcularFila(tr);
       }
