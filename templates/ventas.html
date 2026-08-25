@@ -155,6 +155,9 @@
       return PRODUCTOS_POR_SKU[sku.trim().toUpperCase()] || null;
     }
 
+    var PRODUCTOS_POR_ID = {};
+    PRODUCTOS.forEach(function (p) { PRODUCTOS_POR_ID[p.id] = p; });
+
     // Al escribir/escanear el SKU, resuelve el producto y rellena el precio de
     // venta según menudeo/mayoreo.
     (function () {
@@ -164,6 +167,23 @@
       var tipoEl = document.getElementById('v_tipo_precio');
       var precioEl = document.getElementById('v_precio');
       var fotoEl = document.getElementById('v_foto');
+      var cantidadEl = document.getElementById('v_cantidad');
+      var sucursalEl = document.getElementById('v_sucursal');
+
+      // Avisa AL MOMENTO si no hay suficiente stock en la sucursal elegida,
+      // en vez de hasta que el servidor rechace el envío.
+      function validarStock() {
+        if (!idEl.value) return true; // sin SKU resuelto, nada que revisar aquí
+        var producto = PRODUCTOS_POR_ID[idEl.value];
+        var disponible = (producto && producto.stock && producto.stock[sucursalEl.value]) || 0;
+        var cantidad = parseInt(cantidadEl.value, 10) || 0;
+        if (cantidad > disponible) {
+          errorEl.textContent = 'Solo hay ' + disponible + ' en esta sucursal.';
+          return false;
+        }
+        errorEl.textContent = '';
+        return true;
+      }
 
       function resolverSku() {
         if (!skuEl.value.trim()) {
@@ -183,6 +203,7 @@
           }
           fotoEl.src = '/productos/' + producto.id + '/foto';
           fotoEl.style.display = '';
+          validarStock();
         } else {
           idEl.value = '';
           errorEl.textContent = 'SKU no encontrado.';
@@ -193,15 +214,18 @@
       skuEl.addEventListener('input', resolverSku);
       skuEl.addEventListener('change', resolverSku);
       tipoEl.addEventListener('change', resolverSku);
-    })();
+      cantidadEl.addEventListener('input', validarStock);
+      sucursalEl.addEventListener('change', validarStock);
 
-    // No dejar enviar el formulario si el SKU no corresponde a un producto real.
-    document.getElementById('form-venta').addEventListener('submit', function (e) {
-      if (!document.getElementById('v_producto').value) {
-        e.preventDefault();
-        document.getElementById('v_sku_error').textContent = 'Escribe un SKU válido antes de continuar.';
-      }
-    });
+      document.getElementById('form-venta').addEventListener('submit', function (e) {
+        if (!idEl.value) {
+          e.preventDefault();
+          errorEl.textContent = 'Escribe un SKU válido antes de continuar.';
+        } else if (!validarStock()) {
+          e.preventDefault();
+        }
+      });
+    })();
 
     // "No pagó nada" deja claro que no hace falta escribir 0 ni dejarlo
     // vacío a propósito: se limpia y se deshabilita el campo de monto.

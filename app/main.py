@@ -234,11 +234,29 @@ def calcular_margen(precio, costo) -> float | None:
     return float((precio - costo) / precio * 100)
 
 
-def productos_a_json(productos) -> str:
+def obtener_stock_por_producto(conn) -> dict[int, dict[int, int]]:
+    """Stock de cada producto activo, por sucursal: {producto_id: {sucursal_id:
+    cantidad}}. Se manda al JS de los formularios de venta para avisar en
+    vivo si falta stock, sin esperar a que el servidor rechace el envío."""
+    filas = conn.execute(text(
+        "SELECT st.producto_id, st.sucursal_id, st.cantidad "
+        "FROM stock st "
+        "JOIN productos p ON p.id = st.producto_id AND p.activo = TRUE"
+    )).all()
+    mapa: dict[int, dict[int, int]] = {}
+    for producto_id, sucursal_id, cantidad in filas:
+        mapa.setdefault(producto_id, {})[sucursal_id] = cantidad
+    return mapa
+
+
+def productos_a_json(productos, stock_por_producto: dict[int, dict[int, int]] | None = None) -> str:
     """Convierte una lista de productos (mappings con id/sku/titulo/precio/
     precio_mayoreo) a un JSON que el JavaScript usa para buscar por SKU y
     autocompletar precios, sin tener que ir al servidor por cada búsqueda.
+    Si se le da stock_por_producto, cada producto también trae su stock por
+    sucursal (ver obtener_stock_por_producto).
     """
+    stock_por_producto = stock_por_producto or {}
     return json.dumps([
         {
             "id": p["id"],
@@ -246,6 +264,7 @@ def productos_a_json(productos) -> str:
             "texto": f"{p['titulo']} ({p['sku']})",
             "precio": float(p["precio"]) if p["precio"] is not None else None,
             "precioMayoreo": float(p["precio_mayoreo"]) if p["precio_mayoreo"] is not None else None,
+            "stock": stock_por_producto.get(p["id"], {}),
         }
         for p in productos
     ])
@@ -727,6 +746,8 @@ def ver_ventas(
             "WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
 
+        stock_por_producto = obtener_stock_por_producto(conn)
+
         sucursales = conn.execute(text(
             "SELECT id, nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
         )).mappings().all()
@@ -806,7 +827,7 @@ def ver_ventas(
 
     return templates.TemplateResponse(request, "ventas.html", {
         "ventas": ventas, "error": error, "cambio": cambio,
-        "productos": productos, "productos_json": productos_a_json(productos),
+        "productos": productos, "productos_json": productos_a_json(productos, stock_por_producto),
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras,
         "identidad": identidad,
     })
@@ -1107,6 +1128,7 @@ def carrito_venta(request: Request, error: str | None = None, identidad: Identid
             "SELECT id, sku, titulo, precio, precio_mayoreo FROM productos "
             "WHERE activo = TRUE ORDER BY titulo"
         )).mappings().all()
+        stock_por_producto = obtener_stock_por_producto(conn)
         sucursales = conn.execute(text(
             "SELECT id, nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
         )).mappings().all()
@@ -1119,7 +1141,7 @@ def carrito_venta(request: Request, error: str | None = None, identidad: Identid
 
     return templates.TemplateResponse(request, "carrito.html", {
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras, "error": error,
-        "productos_json": productos_a_json(productos), "identidad": identidad,
+        "productos_json": productos_a_json(productos, stock_por_producto), "identidad": identidad,
     })
 
 

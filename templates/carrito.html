@@ -138,14 +138,47 @@
 
   <script>
     // Índice SKU (mayúsculas) -> producto, para buscar por SKU en cada
-    // renglón en vez de un dropdown gigante.
+    // renglón en vez de un dropdown gigante. PRODUCTOS_POR_ID es para
+    // revisar el stock (por sucursal) de una fila ya resuelta.
     var PRODUCTOS = {{ productos_json|safe }};
     var PRODUCTOS_POR_SKU = {};
-    PRODUCTOS.forEach(function (p) { PRODUCTOS_POR_SKU[p.sku.toUpperCase()] = p; });
+    var PRODUCTOS_POR_ID = {};
+    PRODUCTOS.forEach(function (p) {
+      PRODUCTOS_POR_SKU[p.sku.toUpperCase()] = p;
+      PRODUCTOS_POR_ID[p.id] = p;
+    });
 
     function buscarProductoPorSku(sku) {
       return PRODUCTOS_POR_SKU[sku.trim().toUpperCase()] || null;
     }
+
+    // Avisa AL MOMENTO si no hay suficiente stock en la sucursal elegida,
+    // en vez de hasta que el servidor rechace el envío (mismo tope que ya
+    // valida el backend: la cantidad no puede pasar del stock disponible).
+    function validarStockFila(tr) {
+      var idEl = tr.querySelector('.inp-producto-id');
+      var errorEl = tr.querySelector('.sku-error');
+      var cantidadEl = tr.querySelector('.inp-cantidad');
+      if (!idEl.value) return true; // sin SKU resuelto, nada que revisar aquí
+
+      var producto = PRODUCTOS_POR_ID[idEl.value];
+      var sucursalId = document.getElementById('c_sucursal').value;
+      var disponible = (producto && producto.stock && producto.stock[sucursalId]) || 0;
+      var cantidad = parseInt(cantidadEl.value, 10) || 0;
+
+      if (cantidad > disponible) {
+        errorEl.textContent = 'Solo hay ' + disponible + ' en esta sucursal.';
+        return false;
+      }
+      errorEl.textContent = '';
+      return true;
+    }
+
+    // Al cambiar de sucursal, el stock disponible de TODAS las filas ya
+    // resueltas cambia, así que se revisan todas de nuevo.
+    document.getElementById('c_sucursal').addEventListener('change', function () {
+      document.querySelectorAll('#filas-carrito tr').forEach(validarStockFila);
+    });
 
     function agregarFila() {
       var tr = document.createElement('tr');
@@ -200,6 +233,7 @@
           }
           fotoEl.src = '/productos/' + producto.id + '/foto';
           fotoEl.style.display = '';
+          validarStockFila(tr);
         } else {
           idEl.value = '';
           errorEl.textContent = 'No encontrado.';
@@ -214,6 +248,7 @@
       tr.querySelectorAll('.inp-precio, .inp-cantidad, .inp-descuento').forEach(function (el) {
         el.addEventListener('input', function () { recalcularFila(tr); });
       });
+      tr.querySelector('.inp-cantidad').addEventListener('input', function () { validarStockFila(tr); });
     }
 
     function recalcularFila(tr) {
@@ -250,7 +285,8 @@
     // Arranca el carrito con una fila lista para usarse.
     agregarFila();
 
-    // No dejar enviar el formulario si alguna fila quedó con un SKU sin resolver.
+    // No dejar enviar el formulario si alguna fila quedó con un SKU sin
+    // resolver, o con más cantidad de la que hay en stock.
     document.getElementById('form-carrito').addEventListener('submit', function (e) {
       var faltantes = 0;
       document.querySelectorAll('#filas-carrito tr').forEach(function (tr) {
@@ -261,6 +297,8 @@
           faltantes++;
         } else if (!idEl.value) {
           tr.querySelector('.sku-error').textContent = 'Falta el SKU.';
+          faltantes++;
+        } else if (!validarStockFila(tr)) {
           faltantes++;
         }
       });
