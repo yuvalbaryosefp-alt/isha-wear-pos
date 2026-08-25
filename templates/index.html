@@ -356,7 +356,7 @@
        pedido en /ventas), para no anidar un <form> dentro del de "Eliminar". #}
     <form id="form-etiquetas" method="get" action="/productos/etiquetas"></form>
     <div style="margin-bottom:10px">
-      <input type="text" id="buscar_sku_inventario" placeholder="Buscar por SKU..." autocomplete="off"
+      <input type="text" id="buscar_sku_inventario" placeholder="Buscar por SKU o nombre..." autocomplete="off"
              style="max-width:260px">
       <span id="buscar_sku_contador" style="font-size:12px; color:#777; margin-left:8px"></span>
     </div>
@@ -422,9 +422,9 @@
       </tbody>
     </table>
     <script>
-      // Filtra en vivo las filas de la tabla de inventario por SKU (coincidencia
-      // parcial, sin distinguir mayúsculas/minúsculas) — el catálogo real ya
-      // tiene demasiadas prendas para buscar a ojo.
+      // Filtra en vivo las filas de la tabla de inventario por SKU O por
+      // nombre (coincidencia parcial, sin distinguir mayúsculas/minúsculas)
+      // — el catálogo real ya tiene demasiadas prendas para buscar a ojo.
       (function () {
         var buscador = document.getElementById('buscar_sku_inventario');
         var contador = document.getElementById('buscar_sku_contador');
@@ -434,8 +434,9 @@
           var texto = buscador.value.trim().toUpperCase();
           var visibles = 0;
           filas.forEach(function (tr) {
+            var producto = tr.querySelector('td:nth-child(3)').textContent.trim().toUpperCase();
             var sku = tr.querySelector('td:nth-child(4)').textContent.trim().toUpperCase();
-            var coincide = !texto || sku.indexOf(texto) !== -1;
+            var coincide = !texto || sku.indexOf(texto) !== -1 || producto.indexOf(texto) !== -1;
             tr.style.display = coincide ? '' : 'none';
             if (coincide) visibles++;
           });

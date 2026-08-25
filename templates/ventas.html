@@ -303,8 +303,13 @@
   <form id="form-nota" method="get" action="/ventas/nota"></form>
 
   {% if ventas %}
+    <div style="margin-bottom:10px">
+      <input type="text" id="buscar_venta" placeholder="Buscar por SKU o nombre..." autocomplete="off"
+             style="max-width:260px">
+      <span id="buscar_venta_contador" style="font-size:12px; color:#777; margin-left:8px"></span>
+    </div>
     <div class="tabla-scroll">
-    <table>
+    <table id="tabla-ventas">
       <thead>
         <tr>
           <th></th>
@@ -402,6 +407,31 @@
       </tbody>
     </table>
     </div>
+
+    <script>
+      // Filtra en vivo las filas de la tabla de ventas por SKU O por nombre
+      // del producto (coincidencia parcial, sin distinguir mayúsculas/minúsculas)
+      // — mismo buscador que ya existe en Inventario.
+      (function () {
+        var buscador = document.getElementById('buscar_venta');
+        var contador = document.getElementById('buscar_venta_contador');
+        var filas = document.querySelectorAll('#tabla-ventas tbody tr');
+
+        function filtrar() {
+          var texto = buscador.value.trim().toUpperCase();
+          var visibles = 0;
+          filas.forEach(function (tr) {
+            var producto = tr.querySelector('td:nth-child(3)').textContent.trim().toUpperCase();
+            var coincide = !texto || producto.indexOf(texto) !== -1;
+            tr.style.display = coincide ? '' : 'none';
+            if (coincide) visibles++;
+          });
+          contador.textContent = texto ? (visibles + ' de ' + filas.length + ' ventas') : '';
+        }
+
+        buscador.addEventListener('input', filtrar);
+      })();
+    </script>
   {% else %}
     <div class="tarjeta vacio">Todavía no hay ventas registradas.</div>
   {% endif %}
