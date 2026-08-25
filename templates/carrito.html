@@ -197,6 +197,7 @@
         '<td><button type="button" onclick="quitarFila(this)" style="margin:0; padding:6px 10px; background:none; color:#B02A2A; border:1px solid #F5B5B5">✕</button></td>';
       document.getElementById('filas-carrito').appendChild(tr);
       conectarFila(tr);
+      tr.querySelector('.inp-sku').focus(); // listo para escribir/escanear el siguiente SKU sin dar clic
     }
 
     function quitarFila(boton) {
