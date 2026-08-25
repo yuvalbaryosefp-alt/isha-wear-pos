@@ -127,8 +127,12 @@
     .btn-advertencia:hover { background: var(--ambar-suave); }
 
     .tabla-scroll { overflow-x: auto; border-radius: var(--radio); box-shadow: var(--sombra); }
-    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radio); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radio); }
     th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--borde); font-size: 13.5px; white-space: nowrap; }
+    /* Para columnas de texto largo (ej. nombre de producto): que el texto
+       baje de línea en vez de cortarse o forzar scroll horizontal solo por
+       esa columna. */
+    td.col-ancha { white-space: normal; min-width: 220px; max-width: 340px; }
     th { background: var(--charcoal); color: #fff; font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; }
     tbody tr:hover { background: var(--rosa-suave); }
     tbody tr:last-child td { border-bottom: none; }

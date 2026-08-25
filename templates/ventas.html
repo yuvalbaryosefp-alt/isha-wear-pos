@@ -330,7 +330,7 @@
           <tr>
             <td><input type="checkbox" name="id" value="{{ v.id }}" form="form-nota"></td>
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
-            <td><span style="color:var(--texto-tenue); font-size:12px">{{ v.sku }}</span> {{ v.titulo }}</td>
+            <td class="col-ancha"><span style="color:var(--texto-tenue); font-size:12px">{{ v.sku }}</span> {{ v.titulo }}</td>
             <td>{{ v.sucursal }}</td>
             <td>{{ v.canal|etiqueta_canal }}</td>
             <td>{{ v.clienta or "—" }}</td>
