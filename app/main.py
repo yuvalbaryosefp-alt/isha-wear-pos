@@ -732,6 +732,7 @@ def ver_ventas(
     request: Request,
     error: str | None = None,
     cambio: str | None = None,
+    ok: str | None = None,
     identidad: Identidad = Depends(requiere_login),
 ):
     """Punto de venta: registrar una venta y ver el estado de pago.
@@ -826,7 +827,7 @@ def ver_ventas(
         })
 
     return templates.TemplateResponse(request, "ventas.html", {
-        "ventas": ventas, "error": error, "cambio": cambio,
+        "ventas": ventas, "error": error, "cambio": cambio, "ok": ok,
         "productos": productos, "productos_json": productos_a_json(productos, stock_por_producto),
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras,
         "identidad": identidad,
@@ -938,6 +939,57 @@ def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(empujar_stock_producto_seguro, venta["producto_id"])
     return RedirectResponse("/ventas", status_code=303)
+
+
+@app.post("/ventas/eliminar-varias", dependencies=[Depends(requiere_admin)])
+def eliminar_ventas_varias(background_tasks: BackgroundTasks, id: list[int] = Form(...)):
+    """Elimina varias ventas marcadas de un jalón (ej. limpiar varias de
+    prueba a la vez), en vez de una por una. Misma lógica que eliminar_venta
+    para cada una: repone el stock, deja un movimiento de ajuste, y se salta
+    (sin tronar) las que ya se registraron como devolución/cambio."""
+    eliminadas = 0
+    saltadas = 0
+    productos_tocados: set[int] = set()
+
+    with engine.begin() as conn:
+        for venta_id in id:
+            venta = conn.execute(text(
+                "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
+            ), {"id": venta_id}).mappings().one_or_none()
+            if venta is None:
+                continue
+
+            ya_devuelta = conn.execute(text(
+                "SELECT 1 FROM devoluciones WHERE venta_id = :id"
+            ), {"id": venta_id}).scalar()
+            if ya_devuelta:
+                saltadas += 1
+                continue
+
+            conn.execute(text(
+                "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
+                "WHERE producto_id = :p AND sucursal_id = :s"
+            ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
+
+            conn.execute(text(
+                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+                "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
+            ), {
+                "p": venta["producto_id"], "s": venta["sucursal_id"],
+                "delta": venta["cantidad"], "motivo": f"venta #{venta_id} eliminada (stock repuesto)",
+            })
+
+            conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
+            productos_tocados.add(venta["producto_id"])
+            eliminadas += 1
+
+    if productos_tocados:
+        background_tasks.add_task(empujar_stock_productos_seguro, list(productos_tocados))
+
+    mensaje = f"Se eliminaron {eliminadas} venta(s)."
+    if saltadas:
+        mensaje += f" {saltadas} no se pudieron eliminar (ya son devolución/cambio)."
+    return RedirectResponse(f"/ventas?ok={mensaje}", status_code=303)
 
 
 @app.post("/ventas/{venta_id}/devolucion", dependencies=[Depends(requiere_admin)])

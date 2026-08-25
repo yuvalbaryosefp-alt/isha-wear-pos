@@ -8,6 +8,9 @@
   {% if cambio %}
     <div class="aviso-ok">💵 Cambio a entregar: ${{ "%.2f"|format(cambio|float) }}</div>
   {% endif %}
+  {% if ok %}
+    <div class="aviso-ok">{{ ok }}</div>
+  {% endif %}
 
   {# ---------- Formulario para registrar una venta (1 sola prenda) ---------- #}
   <h2>Registrar venta</h2>
@@ -282,9 +285,17 @@
     <button type="submit" form="form-nota" class="btn-sm" style="background:var(--rosa); color:#fff;">
       🖨️ Imprimir nota de pedido
     </button>
+    {% if identidad.rol == "admin" %}
+      <button type="submit" form="form-nota" formaction="/ventas/eliminar-varias" formmethod="post"
+              class="btn-sm btn-peligro"
+              onclick="return confirm('¿Eliminar las ventas marcadas? Se repone el stock de cada una. Esta acción no se puede deshacer.');">
+        Eliminar seleccionadas
+      </button>
+    {% endif %}
   </h2>
   <p class="nota" style="margin-top:-8px">
-    Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta), elige cuántas copias y da clic en "Imprimir nota de pedido".
+    Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta) y elige una acción: imprimir su nota
+    (con cuántas copias) o eliminarlas de un jalón.
   </p>
 
   {# Form "vacío": las casillas y el botón de arriba se asocian a él vía el atributo form="form-nota",
