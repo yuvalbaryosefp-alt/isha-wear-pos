@@ -740,7 +740,7 @@ def ver_ventas(
         )).mappings().all()
 
         ventas_rows = conn.execute(text(
-            "SELECT v.id, v.creada_en, p.titulo, s.nombre AS sucursal, v.canal, "
+            "SELECT v.id, v.creada_en, p.sku, p.titulo, s.nombre AS sucursal, v.canal, "
             "       v.tipo_precio, c.nombre AS clienta, ve.nombre AS vendedora, "
             "       v.cantidad, v.precio_unitario, "
             "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo, v.apartado "
@@ -787,6 +787,7 @@ def ver_ventas(
         ventas.append({
             "id": v["id"],
             "creada_en": v["creada_en"].astimezone(ZONA_CDMX),
+            "sku": v["sku"],
             "titulo": v["titulo"],
             "sucursal": v["sucursal"],
             "canal": v["canal"],
