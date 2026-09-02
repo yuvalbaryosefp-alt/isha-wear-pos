@@ -13,7 +13,54 @@
     <p style="margin:0 0 4px"><strong>Teléfono:</strong> {{ clienta.telefono or "—" }}</p>
     <p style="margin:0 0 4px"><strong>Email:</strong> {{ clienta.email or "—" }}</p>
     <p style="margin:0 0 4px"><strong>Cumpleaños:</strong> {{ clienta.cumpleanos.strftime("%d/%m/%Y") if clienta.cumpleanos else "—" }}</p>
+    <p style="margin:0 0 4px">
+      <strong>Instagram:</strong>
+      {% if clienta.instagram %}
+        @{{ clienta.instagram }}
+        &nbsp;·&nbsp;<a href="https://instagram.com/{{ clienta.instagram }}" target="_blank" rel="noopener">Ver perfil</a>
+        &nbsp;·&nbsp;<a href="https://ig.me/m/{{ clienta.instagram }}" target="_blank" rel="noopener">Enviar DM</a>
+      {% else %}
+        —
+      {% endif %}
+    </p>
     <p style="margin:0 0 14px"><strong>Notas:</strong> {{ clienta.notas or "—" }}</p>
+
+    <details style="margin-bottom:14px">
+      <summary style="cursor:pointer; font-size:13px; color:var(--rosa)">Editar datos de la clienta</summary>
+      <form method="post" action="/clientas/{{ clienta.id }}/editar" style="margin-top:10px">
+        <div class="fila-form">
+          <div>
+            <label for="ec_nombre">Nombre</label>
+            <input type="text" id="ec_nombre" name="nombre" value="{{ clienta.nombre }}" required>
+          </div>
+          <div>
+            <label for="ec_telefono">Teléfono (WhatsApp)</label>
+            <input type="text" id="ec_telefono" name="telefono" value="{{ clienta.telefono or '' }}">
+          </div>
+        </div>
+        <div class="fila-form">
+          <div>
+            <label for="ec_instagram">Usuario de Instagram</label>
+            <input type="text" id="ec_instagram" name="instagram" value="{{ clienta.instagram or '' }}" placeholder="sin la @">
+          </div>
+          <div>
+            <label for="ec_email">Email</label>
+            <input type="text" id="ec_email" name="email" value="{{ clienta.email or '' }}">
+          </div>
+          <div>
+            <label for="ec_cumpleanos">Cumpleaños</label>
+            <input type="date" id="ec_cumpleanos" name="cumpleanos" value="{{ clienta.cumpleanos.isoformat() if clienta.cumpleanos else '' }}">
+          </div>
+        </div>
+        <div class="fila-form">
+          <div>
+            <label for="ec_notas">Notas (tallas, preferencias, gustos)</label>
+            <input type="text" id="ec_notas" name="notas" value="{{ clienta.notas or '' }}">
+          </div>
+        </div>
+        <button type="submit" class="btn-sm">Guardar cambios</button>
+      </form>
+    </details>
 
     {% if saldo_total_clienta > 0 %}
       <p style="margin:0 0 8px; font-size:14px">

@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS clientas (
     creada_en    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Usuario de Instagram (sin la @), para abrirle el perfil o mandarle DM
+-- directo desde su ficha sin tener que buscarla a mano.
+ALTER TABLE clientas ADD COLUMN IF NOT EXISTS instagram TEXT;
+
 
 -- ------------------------------------------------------------
 -- 4. STOCK  (estado actual: una fila por producto+sucursal)
@@ -194,7 +198,7 @@ ALTER TABLE ventas ADD COLUMN IF NOT EXISTS apartado BOOLEAN NOT NULL DEFAULT FA
 -- para CHECKs; el nombre es el que Postgres autogeneró al crear la tabla.
 ALTER TABLE ventas DROP CONSTRAINT IF EXISTS ventas_canal_check;
 ALTER TABLE ventas ADD CONSTRAINT ventas_canal_check
-    CHECK (canal IN ('boutique', 'ecommerce', 'consignacion', 'mayoreo', 'domicilio'));
+    CHECK (canal IN ('boutique', 'ecommerce', 'consignacion', 'mayoreo', 'domicilio', 'instagram'));
 
 -- ------------------------------------------------------------
 -- 8. VENDEDORAS  (quién atendió cada venta, para reportes de comisiones)

@@ -55,6 +55,7 @@ CANALES = {
     "consignacion": "Consignación",
     "mayoreo": "Mayoreo",
     "domicilio": "Domicilio",
+    "instagram": "Instagram",
 }
 
 # Días sin venderse a partir de los cuales una prenda con stock se marca
@@ -191,6 +192,19 @@ def parsear_dinero(texto: str) -> float | None:
         return float(texto.replace(",", "").strip())
     except ValueError:
         return None
+
+
+def limpiar_usuario_instagram(texto: str) -> str | None:
+    """Deja solo el @usuario de Instagram, venga como '@nombre', 'nombre',
+    o pegado el link completo del perfil ('instagram.com/nombre/...')."""
+    texto = (texto or "").strip()
+    if not texto:
+        return None
+    if "instagram.com/" in texto:
+        texto = texto.split("instagram.com/", 1)[1]
+    texto = texto.split("?")[0].strip("/ ")
+    texto = texto.lstrip("@")
+    return texto or None
 
 
 def siguiente_numero_nota(conn, sucursal_id: int) -> int:
@@ -1685,6 +1699,7 @@ def crear_clienta(
     email: str = Form(""),
     cumpleanos: str = Form(""),
     notas: str = Form(""),
+    instagram: str = Form(""),
     siguiente: str = Form("/clientas"),  # a dónde regresar (una vendedora no puede ver /clientas)
 ):
     """Da de alta una clienta nueva. Accesible tanto para admin (desde
@@ -1705,8 +1720,8 @@ def crear_clienta(
 
     with engine.begin() as conn:
         nueva_id = conn.execute(text(
-            "INSERT INTO clientas (nombre, telefono, email, cumpleanos, notas) "
-            "VALUES (:nombre, :telefono, :email, :cumpleanos, :notas) "
+            "INSERT INTO clientas (nombre, telefono, email, cumpleanos, notas, instagram) "
+            "VALUES (:nombre, :telefono, :email, :cumpleanos, :notas, :instagram) "
             "RETURNING id"
         ), {
             "nombre": nombre,
@@ -1714,11 +1729,52 @@ def crear_clienta(
             "email": email.strip() or None,
             "cumpleanos": cumpleanos.strip() or None,
             "notas": notas.strip() or None,
+            "instagram": limpiar_usuario_instagram(instagram),
         }).scalar_one()
 
     if "application/json" in request.headers.get("accept", ""):
         return {"id": nueva_id, "nombre": nombre}
     return RedirectResponse(siguiente, status_code=303)
+
+
+@app.post("/clientas/{cliente_id}/editar", dependencies=[Depends(requiere_admin)])
+def editar_clienta(
+    cliente_id: int,
+    nombre: str = Form(...),
+    telefono: str = Form(""),
+    email: str = Form(""),
+    cumpleanos: str = Form(""),
+    notas: str = Form(""),
+    instagram: str = Form(""),
+):
+    """Actualiza los datos de una clienta que ya existe (ej. agregarle el
+    usuario de Instagram a alguien dada de alta antes de que existiera este
+    campo). Antes no había forma de editar una clienta, solo darla de alta
+    o eliminarla."""
+    nombre = nombre.strip()
+    if not nombre:
+        return RedirectResponse(
+            f"/clientas/{cliente_id}?error=El nombre no puede quedar vacío.", status_code=303,
+        )
+
+    with engine.begin() as conn:
+        actualizada = conn.execute(text(
+            "UPDATE clientas SET nombre = :nombre, telefono = :telefono, email = :email, "
+            "       cumpleanos = :cumpleanos, notas = :notas, instagram = :instagram "
+            "WHERE id = :id RETURNING id"
+        ), {
+            "nombre": nombre,
+            "telefono": telefono.strip() or None,
+            "email": email.strip() or None,
+            "cumpleanos": cumpleanos.strip() or None,
+            "notas": notas.strip() or None,
+            "instagram": limpiar_usuario_instagram(instagram),
+            "id": cliente_id,
+        }).scalar_one_or_none()
+
+    if actualizada is None:
+        return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
+    return RedirectResponse(f"/clientas/{cliente_id}", status_code=303)
 
 
 @app.post("/clientas/{cliente_id}/abonar", dependencies=[Depends(requiere_admin)])
@@ -1864,7 +1920,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
     imprimir por separado, además del abono general a toda su cuenta."""
     with engine.connect() as conn:
         clienta = conn.execute(text(
-            "SELECT id, nombre, telefono, email, cumpleanos, notas FROM clientas WHERE id = :id"
+            "SELECT id, nombre, telefono, email, cumpleanos, notas, instagram FROM clientas WHERE id = :id"
         ), {"id": cliente_id}).mappings().one_or_none()
 
         if clienta is None:
