@@ -150,6 +150,12 @@
             <td class="label">Total pagado:</td>
             <td class="valor">${{ "%.2f"|format(total) }}</td>
           </tr>
+          {% for fp in formas_pago %}
+            <tr>
+              <td class="label">{{ fp.etiqueta }}:</td>
+              <td class="valor">${{ "%.2f"|format(fp.monto) }}</td>
+            </tr>
+          {% endfor %}
           {% if cambio %}
             <tr>
               <td class="label">Recibido:</td>
@@ -173,6 +179,12 @@
             <td class="label">Anticipo:</td>
             <td class="valor">${{ "%.2f"|format(pagado) }}</td>
           </tr>
+          {% for fp in formas_pago %}
+            <tr>
+              <td class="label">{{ fp.etiqueta }}:</td>
+              <td class="valor">${{ "%.2f"|format(fp.monto) }}</td>
+            </tr>
+          {% endfor %}
           <tr class="saldo-pendiente">
             <td class="label">Saldo pendiente:</td>
             <td class="valor">${{ "%.2f"|format(saldo) }}</td>

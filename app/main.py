@@ -1114,16 +1114,19 @@ def nota_pedido(
         ), params).mappings().all()
 
         pagos = conn.execute(ids_stmt(
-            "SELECT venta_id, monto FROM pagos WHERE venta_id IN :ids"
+            "SELECT venta_id, metodo, monto FROM pagos WHERE venta_id IN :ids"
         ), {"ids": id}).all()
 
     if not filas:
         return RedirectResponse("/ventas?error=No se encontraron las ventas seleccionadas.", status_code=303)
 
-    # Suma lo pagado de cada venta seleccionada.
+    # Suma lo pagado de cada venta seleccionada, y por separado lo pagado
+    # de cada método (efectivo/tarjeta/transferencia) para mostrarlo en la nota.
     pagado_por_venta: dict[int, float] = {}
-    for venta_id, monto in pagos:
+    pagado_por_metodo: dict[str, float] = {}
+    for venta_id, metodo, monto in pagos:
         pagado_por_venta[venta_id] = pagado_por_venta.get(venta_id, 0.0) + float(monto)
+        pagado_por_metodo[metodo] = pagado_por_metodo.get(metodo, 0.0) + float(monto)
 
     items = []
     total = 0.0
@@ -1164,6 +1167,12 @@ def nota_pedido(
 
     saldo = round(total - pagado_total, 2)
 
+    ETIQUETAS_METODO = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
+    formas_pago = [
+        {"etiqueta": ETIQUETAS_METODO.get(metodo, metodo), "monto": monto}
+        for metodo, monto in pagado_por_metodo.items()
+    ]
+
     return templates.TemplateResponse(request, "nota_pedido.html", {
         "items": items,
         "total": total,
@@ -1181,6 +1190,7 @@ def nota_pedido(
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
         "cambio": cambio,
+        "formas_pago": formas_pago,
     })
 
 
