@@ -223,6 +223,12 @@ ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS usuario TEXT UNIQUE;
 ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS clave_hash TEXT;
 ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS clave_salt TEXT;
 
+-- Excepción al "sin ver números": por defecto una vendedora NO ve los
+-- montos (Total/Pagado/Saldo/Métodos) en la lista de Ventas, salvo que la
+-- admin le active esto explícitamente desde /vendedoras (ej. una encargada
+-- de confianza como Lilia Pérez).
+ALTER TABLE vendedoras ADD COLUMN IF NOT EXISTS puede_ver_numeros BOOLEAN NOT NULL DEFAULT FALSE;
+
 
 -- ------------------------------------------------------------
 -- 7. PAGOS  (abonos hechos a una venta; una venta puede tener varios)

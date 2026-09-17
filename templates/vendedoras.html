@@ -42,6 +42,7 @@
           <th>Nombre</th>
           <th>Estado</th>
           <th>Acceso al sistema</th>
+          <th>Ve montos en Ventas</th>
           <th>Ventas</th>
           <th>Total vendido</th>
           <th></th>
@@ -63,6 +64,11 @@
                 <span style="color:var(--texto-tenue); font-size:12.5px">Sin acceso</span>
               {% endif %}
             </td>
+            <td>
+              <span class="badge {{ 'pagado' if ve.puede_ver_numeros else 'pendiente' }}">
+                {{ "Sí" if ve.puede_ver_numeros else "No" }}
+              </span>
+            </td>
             <td class="num">{{ ve.num_ventas }}</td>
             <td class="num">${{ "%.2f"|format(ve.total_vendido) }}</td>
             <td>
@@ -71,6 +77,12 @@
                   <input type="hidden" name="valor" value="{{ 'false' if ve.activa else 'true' }}">
                   <button type="submit" class="btn-sm btn-secundario">
                     {{ "Desactivar" if ve.activa else "Activar" }}
+                  </button>
+                </form>
+                <form method="post" action="/vendedoras/{{ ve.id }}/numeros">
+                  <input type="hidden" name="valor" value="{{ 'false' if ve.puede_ver_numeros else 'true' }}">
+                  <button type="submit" class="btn-sm btn-secundario">
+                    {{ "Quitar acceso a montos" if ve.puede_ver_numeros else "Dar acceso a montos" }}
                   </button>
                 </form>
                 <form method="post" action="/vendedoras/{{ ve.id }}/eliminar"
@@ -98,6 +110,10 @@
   {% else %}
     <div class="tarjeta vacio">Todavía no hay vendedoras registradas.</div>
   {% endif %}
+  <p class="nota">
+    Por defecto ninguna vendedora ve los montos (Total/Pagado/Saldo/Métodos) en la lista de Ventas, solo registra
+    las suyas. "Dar acceso a montos" es la excepción puntual para alguien de confianza (ej. Lilia Pérez).
+  </p>
   <p class="nota">
     Para alguien que ya no trabaja ahí pero cuyo historial quieres conservar, mejor desactívala en vez de eliminarla —
     sigue apareciendo en los reportes de ventas pasadas, pero ya no aparece como opción al registrar una venta nueva

@@ -321,11 +321,15 @@
           <th>Clienta</th>
           <th>Vendedora</th>
           <th>Cant.</th>
-          <th>Total</th>
-          <th>Pagado</th>
-          <th>Saldo</th>
+          {% if mostrar_numeros %}
+            <th>Total</th>
+            <th>Pagado</th>
+            <th>Saldo</th>
+          {% endif %}
           <th>Estado</th>
-          <th>Métodos</th>
+          {% if mostrar_numeros %}
+            <th>Métodos</th>
+          {% endif %}
           <th>Abonar</th>
           <th>Devolución/Cambio</th>
           <th></th>
@@ -342,9 +346,11 @@
             <td>{{ v.clienta or "—" }}</td>
             <td>{{ v.vendedora or "—" }}</td>
             <td class="num">{{ v.cantidad }}</td>
-            <td class="num">${{ "%.2f"|format(v.total) }}</td>
-            <td class="num">${{ "%.2f"|format(v.pagado) }}</td>
-            <td class="num">${{ "%.2f"|format(v.saldo) }}</td>
+            {% if mostrar_numeros %}
+              <td class="num">${{ "%.2f"|format(v.total) }}</td>
+              <td class="num">${{ "%.2f"|format(v.pagado) }}</td>
+              <td class="num">${{ "%.2f"|format(v.saldo) }}</td>
+            {% endif %}
             <td>
               <span class="badge {{ v.estado|lower }}">{{ v.estado }}</span>
               {% if v.saldo > 0 and identidad.rol == "admin" %}
@@ -356,7 +362,9 @@
                 </form>
               {% endif %}
             </td>
-            <td>{{ v.metodos }}</td>
+            {% if mostrar_numeros %}
+              <td>{{ v.metodos }}</td>
+            {% endif %}
             <td>
               {% if v.saldo > 0 %}
                 <form method="post" action="/ventas/{{ v.id }}/pagos" style="display:flex; gap:6px; align-items:center">

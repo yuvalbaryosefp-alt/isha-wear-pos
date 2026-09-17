@@ -80,6 +80,9 @@ class Identidad:
     rol: str  # "admin" o "vendedora"
     vendedora_id: int | None = None
     vendedora_nombre: str | None = None
+    # La admin siempre puede ver los montos; una vendedora solo si se le dio
+    # ese permiso explícitamente (ver columna puede_ver_numeros en vendedoras).
+    puede_ver_numeros: bool = True
 
 
 def hash_clave(clave: str, salt: str | None = None) -> tuple[str, str]:
@@ -107,14 +110,17 @@ def requiere_login(
     # No es la admin: prueba contra las vendedoras con acceso al sistema.
     with engine.connect() as conn:
         fila = conn.execute(text(
-            "SELECT id, nombre, clave_hash, clave_salt FROM vendedoras "
+            "SELECT id, nombre, clave_hash, clave_salt, puede_ver_numeros FROM vendedoras "
             "WHERE usuario = :u AND activa = TRUE"
         ), {"u": credenciales.username}).mappings().one_or_none()
 
     if fila is not None and fila["clave_hash"] is not None:
         _, hash_calculado = hash_clave(credenciales.password, fila["clave_salt"])
         if secrets.compare_digest(hash_calculado, fila["clave_hash"]):
-            identidad = Identidad(rol="vendedora", vendedora_id=fila["id"], vendedora_nombre=fila["nombre"])
+            identidad = Identidad(
+                rol="vendedora", vendedora_id=fila["id"], vendedora_nombre=fila["nombre"],
+                puede_ver_numeros=fila["puede_ver_numeros"],
+            )
             request.state.identidad = identidad
             return identidad
 
@@ -845,6 +851,7 @@ def ver_ventas(
         "productos": productos, "productos_json": productos_a_json(productos, stock_por_producto),
         "sucursales": sucursales, "clientas": clientas, "vendedoras": vendedoras,
         "identidad": identidad,
+        "mostrar_numeros": identidad.rol == "admin" or identidad.puede_ver_numeros,
     })
 
 
@@ -2001,12 +2008,12 @@ def ver_vendedoras(request: Request, error: str | None = None):
     para reportes de comisiones y desempeño."""
     with engine.connect() as conn:
         filas = conn.execute(text(
-            "SELECT ve.id, ve.nombre, ve.activa, ve.usuario, "
+            "SELECT ve.id, ve.nombre, ve.activa, ve.usuario, ve.puede_ver_numeros, "
             "       COUNT(v.id) AS num_ventas, "
             "       COALESCE(SUM(v.precio_unitario * v.cantidad), 0) AS total_vendido "
             "FROM vendedoras ve "
             "LEFT JOIN ventas v ON v.vendedora_id = ve.id "
-            "GROUP BY ve.id, ve.nombre, ve.activa, ve.usuario "
+            "GROUP BY ve.id, ve.nombre, ve.activa, ve.usuario, ve.puede_ver_numeros "
             "ORDER BY ve.activa DESC, ve.nombre"
         )).mappings().all()
 
@@ -2091,6 +2098,21 @@ def cambiar_activa_vendedora(vendedora_id: int, valor: bool = Form(...)):
     with engine.begin() as conn:
         actualizada = conn.execute(text(
             "UPDATE vendedoras SET activa = :valor WHERE id = :id RETURNING id"
+        ), {"valor": valor, "id": vendedora_id}).scalar()
+
+    if actualizada is None:
+        return RedirectResponse("/vendedoras?error=Vendedora no encontrada.", status_code=303)
+    return RedirectResponse("/vendedoras", status_code=303)
+
+
+@app.post("/vendedoras/{vendedora_id}/numeros", dependencies=[Depends(requiere_admin)])
+def cambiar_puede_ver_numeros(vendedora_id: int, valor: bool = Form(...)):
+    """Le da o le quita a una vendedora el permiso de ver los montos
+    (Total/Pagado/Saldo/Métodos) en la lista de Ventas. Por defecto ninguna
+    vendedora los ve; esto es la excepción puntual (ej. Lilia Pérez)."""
+    with engine.begin() as conn:
+        actualizada = conn.execute(text(
+            "UPDATE vendedoras SET puede_ver_numeros = :valor WHERE id = :id RETURNING id"
         ), {"valor": valor, "id": vendedora_id}).scalar()
 
     if actualizada is None:
