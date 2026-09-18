@@ -1114,16 +1114,22 @@ def nota_pedido(
         ), params).mappings().all()
 
         pagos = conn.execute(ids_stmt(
-            "SELECT venta_id, monto FROM pagos WHERE venta_id IN :ids"
+            "SELECT venta_id, metodo, monto FROM pagos WHERE venta_id IN :ids"
         ), {"ids": id}).all()
 
     if not filas:
         return RedirectResponse("/ventas?error=No se encontraron las ventas seleccionadas.", status_code=303)
 
-    # Suma lo pagado de cada venta seleccionada.
+    # Suma lo pagado de cada venta seleccionada, y junta los métodos usados
+    # (puede haber más de uno si se pagó parte en efectivo y parte con
+    # tarjeta, por ejemplo, entre el pago inicial y los abonos).
+    etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
     pagado_por_venta: dict[int, float] = {}
-    for venta_id, monto in pagos:
+    metodos_distintos: set[str] = set()
+    for venta_id, metodo, monto in pagos:
         pagado_por_venta[venta_id] = pagado_por_venta.get(venta_id, 0.0) + float(monto)
+        metodos_distintos.add(etiquetas_metodo.get(metodo, metodo))
+    metodos_pago = ", ".join(sorted(metodos_distintos)) or None
 
     items = []
     total = 0.0
@@ -1181,6 +1187,7 @@ def nota_pedido(
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
         "cambio": cambio,
+        "metodos_pago": metodos_pago,
     })
 
 
@@ -1937,6 +1944,18 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
             "WHERE v.cliente_id = :id ORDER BY v.creada_en DESC, v.id DESC"
         ), {"id": cliente_id}).mappings().all()
 
+        pagos_rows = conn.execute(text(
+            "SELECT p.venta_id, p.metodo FROM pagos p "
+            "JOIN ventas v ON v.id = p.venta_id WHERE v.cliente_id = :id"
+        ), {"id": cliente_id}).mappings().all()
+
+    etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
+    metodos_por_venta: dict[int, set[str]] = {}
+    for pg in pagos_rows:
+        metodos_por_venta.setdefault(pg["venta_id"], set()).add(
+            etiquetas_metodo.get(pg["metodo"], pg["metodo"])
+        )
+
     # Agrupa por "ticket" (pedido_id si vino de un carrito con varias
     # prendas; si no, su propio id — igual que el ticket promedio en
     # /reportes). El orden de aparición de las llaves sigue el de las filas
@@ -1960,6 +1979,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
                 "fecha": c["creada_en"].astimezone(ZONA_CDMX),
                 "total": 0.0,
                 "pagado": 0.0,
+                "metodos": set(),
             }
             orden_claves.append(clave)
         nota = notas_por_clave[clave]
@@ -1971,11 +1991,13 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
         })
         nota["total"] += subtotal
         nota["pagado"] += float(c["pagado_venta"])
+        nota["metodos"].update(metodos_por_venta.get(c["id"], set()))
 
     notas = []
     for clave in orden_claves:
         nota = notas_por_clave[clave]
         nota["saldo"] = round(nota["total"] - nota["pagado"], 2)
+        nota["metodos"] = ", ".join(sorted(nota["metodos"])) or "—"
         notas.append(nota)
 
     saldo_total_clienta = round(sum(n["saldo"] for n in notas), 2)

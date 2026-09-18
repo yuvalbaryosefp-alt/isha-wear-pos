@@ -150,6 +150,7 @@
           <span style="color:{{ 'var(--rojo)' if n.saldo > 0 else 'inherit' }}">
             Saldo: <strong>${{ "%.2f"|format(n.saldo) }}</strong>
           </span>
+          <span>Método: <strong>{{ n.metodos }}</strong></span>
         </div>
 
         {% if n.saldo > 0 %}
