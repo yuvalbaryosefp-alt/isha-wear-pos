@@ -44,6 +44,7 @@
           <th>Acceso al sistema</th>
           <th>Ventas</th>
           <th>Total vendido</th>
+          <th>Comisión</th>
           <th></th>
         </tr>
       </thead>
@@ -65,6 +66,7 @@
             </td>
             <td class="num">{{ ve.num_ventas }}</td>
             <td class="num">${{ "%.2f"|format(ve.total_vendido) }}</td>
+            <td class="num">${{ "%.2f"|format(ve.comision) }}</td>
             <td>
               <div style="display:flex; gap:6px; flex-wrap:wrap">
                 <form method="post" action="/vendedoras/{{ ve.id }}/activa">
@@ -102,6 +104,10 @@
     Para alguien que ya no trabaja ahí pero cuyo historial quieres conservar, mejor desactívala en vez de eliminarla —
     sigue apareciendo en los reportes de ventas pasadas, pero ya no aparece como opción al registrar una venta nueva
     ni puede entrar al sistema con su usuario.
+  </p>
+  <p class="nota">
+    La comisión se calcula sobre lo que realmente se ha pagado (no sobre el total de ventas con saldo pendiente):
+    con tarjeta, se le resta primero el 5% y de ahí se le da el 3%; en efectivo o transferencia, 3% directo.
   </p>
 
 {% endblock %}

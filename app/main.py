@@ -2009,8 +2009,16 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
 
 @app.get("/vendedoras", dependencies=[Depends(requiere_admin)])
 def ver_vendedoras(request: Request, error: str | None = None):
-    """Lista las vendedoras/empleadas y cuánto ha vendido cada una en total,
-    para reportes de comisiones y desempeño."""
+    """Lista las vendedoras/empleadas, cuánto ha vendido cada una y su
+    comisión, para reportes de comisiones y desempeño.
+
+    Regla de comisión (la misma que se usaba a mano):
+      - Tarjeta: primero se le resta el 5% (comisión bancaria), y de lo que
+        queda se le da el 3% a la vendedora.
+      - Efectivo o transferencia: 3% directo sobre lo pagado, sin descuento.
+    Se calcula sobre los PAGOS reales (no sobre el total de la venta), para
+    que un apartado que todavía no se cobra completo no genere comisión de
+    más, y para respetar el método con el que se pagó cada abono."""
     with engine.connect() as conn:
         filas = conn.execute(text(
             "SELECT ve.id, ve.nombre, ve.activa, ve.usuario, "
@@ -2022,7 +2030,23 @@ def ver_vendedoras(request: Request, error: str | None = None):
             "ORDER BY ve.activa DESC, ve.nombre"
         )).mappings().all()
 
-    return templates.TemplateResponse(request, "vendedoras.html", {"vendedoras": filas, "error": error})
+        pagos_com = conn.execute(text(
+            "SELECT v.vendedora_id, p.metodo, p.monto FROM pagos p "
+            "JOIN ventas v ON v.id = p.venta_id WHERE v.vendedora_id IS NOT NULL"
+        )).all()
+
+    comision_por_vendedora: dict[int, float] = {}
+    for vendedora_id, metodo, monto in pagos_com:
+        monto = float(monto)
+        comision = monto * 0.95 * 0.03 if metodo == "tarjeta" else monto * 0.03
+        comision_por_vendedora[vendedora_id] = comision_por_vendedora.get(vendedora_id, 0.0) + comision
+
+    vendedoras = [
+        {**dict(f), "comision": round(comision_por_vendedora.get(f["id"], 0.0), 2)}
+        for f in filas
+    ]
+
+    return templates.TemplateResponse(request, "vendedoras.html", {"vendedoras": vendedoras, "error": error})
 
 
 @app.post("/vendedoras", dependencies=[Depends(requiere_admin)])
