@@ -2031,22 +2031,37 @@ def ver_vendedoras(request: Request, error: str | None = None):
         )).mappings().all()
 
         pagos_com = conn.execute(text(
-            "SELECT v.vendedora_id, p.metodo, p.monto FROM pagos p "
+            "SELECT v.vendedora_id, p.metodo, p.monto, p.creado_en FROM pagos p "
             "JOIN ventas v ON v.id = p.venta_id WHERE v.vendedora_id IS NOT NULL"
         )).all()
 
+    inicio_mes = datetime.now(ZONA_CDMX).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
     comision_por_vendedora: dict[int, float] = {}
-    for vendedora_id, metodo, monto in pagos_com:
+    comision_mes_por_vendedora: dict[int, float] = {}
+    for vendedora_id, metodo, monto, creado_en in pagos_com:
         monto = float(monto)
         comision = monto * 0.95 * 0.03 if metodo == "tarjeta" else monto * 0.03
         comision_por_vendedora[vendedora_id] = comision_por_vendedora.get(vendedora_id, 0.0) + comision
+        if creado_en >= inicio_mes:
+            comision_mes_por_vendedora[vendedora_id] = comision_mes_por_vendedora.get(vendedora_id, 0.0) + comision
 
     vendedoras = [
-        {**dict(f), "comision": round(comision_por_vendedora.get(f["id"], 0.0), 2)}
+        {
+            **dict(f),
+            "comision": round(comision_por_vendedora.get(f["id"], 0.0), 2),
+            "comision_mes": round(comision_mes_por_vendedora.get(f["id"], 0.0), 2),
+        }
         for f in filas
     ]
 
-    return templates.TemplateResponse(request, "vendedoras.html", {"vendedoras": vendedoras, "error": error})
+    meses_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    mes_nombre = meses_es[inicio_mes.month - 1]
+
+    return templates.TemplateResponse(request, "vendedoras.html", {
+        "vendedoras": vendedoras, "error": error, "mes_nombre": mes_nombre,
+    })
 
 
 @app.post("/vendedoras", dependencies=[Depends(requiere_admin)])
