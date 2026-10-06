@@ -324,10 +324,13 @@
     // se registra con el botón "Registrar venta múltiple". Se espera un
     // instante (setTimeout) para que el SKU elegido del menú desplegable ya
     // esté resuelto cuando se revisa.
-    document.getElementById('filas-carrito').addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') return;
+    // Vale para TODO el formulario: Enter nunca envía la venta, estés en la
+    // fila que estés o en cualquier otro campo (monto pagado, clienta...).
+    document.getElementById('form-carrito').addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA') return;
       e.preventDefault();
-      var tr = e.target.closest('tr');
+      var tr = e.target.closest('#filas-carrito tr');
+      if (!tr) return; // fuera de las prendas: solo se evita el envío
       setTimeout(function () {
         var skuEl = tr.querySelector('.inp-sku');
         if (!tr.querySelector('.inp-producto-id').value) {
