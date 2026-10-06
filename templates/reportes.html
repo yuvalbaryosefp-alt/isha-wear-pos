@@ -33,6 +33,19 @@
   {% endif %}
 {% endmacro %}
 
+{# % de cambio contra el periodo anterior: verde si subió, rojo si bajó #}
+{% macro delta(pct) %}
+  {% if pct is none %}
+    <span style="color:#999">sin base</span>
+  {% elif pct > 0.05 %}
+    <span style="color:#1a7a3c; font-weight:600">▲ +{{ "%.1f"|format(pct) }}%</span>
+  {% elif pct < -0.05 %}
+    <span style="color:#B02A2A; font-weight:600">▼ {{ "%.1f"|format(pct) }}%</span>
+  {% else %}
+    <span style="color:#777">= 0.0%</span>
+  {% endif %}
+{% endmacro %}
+
 {% block contenido %}
   <style>
     .stats { display: flex; gap: 14px; flex-wrap: wrap; }
@@ -59,16 +72,19 @@
       <div class="stat">
         <div class="n">${{ "{:,.2f}".format(actual.por_sucursal[nombre]) }}</div>
         <div class="l">{{ nombre }}</div>
+        <div class="l">{{ delta(actual.cambio[nombre]) }} {{ actual.comparado }}</div>
       </div>
     {% endfor %}
     <div class="stat destacado">
       <div class="n">${{ "{:,.2f}".format(actual.total) }}</div>
       <div class="l">Total del mes</div>
+      <div class="l">{{ delta(actual.cambio_total) }} {{ actual.comparado }}</div>
     </div>
   </div>
   <p style="font-size:12px; color:#777; margin:6px 0 0">
     Ventas del día 1 al último día del mes, hora de México (CST). Es independiente de las fechas de abajo.
-    Los apartados con saldo pendiente cuentan hasta que se liquidan.
+    Los apartados con saldo pendiente cuentan hasta que se liquidan. El mes en curso se compara contra
+    los mismos días del mes anterior (no contra el mes completo, que todavía no termina).
   </p>
 
   {% if meses_ventas|length > 1 %}
@@ -87,14 +103,20 @@
             <tr>
               <td>{{ m.etiqueta }}{% if m.actual %} <span style="font-size:11px; color:#777">(en curso)</span>{% endif %}</td>
               {% for nombre in sucursales_mes %}
-                <td class="num">${{ "{:,.2f}".format(m.por_sucursal[nombre]) }}</td>
+                <td class="num">${{ "{:,.2f}".format(m.por_sucursal[nombre]) }}
+                  <div style="font-size:12px">{{ delta(m.cambio[nombre]) }}</div></td>
               {% endfor %}
-              <td class="num"><strong>${{ "{:,.2f}".format(m.total) }}</strong></td>
+              <td class="num"><strong>${{ "{:,.2f}".format(m.total) }}</strong>
+                <div style="font-size:12px">{{ delta(m.cambio_total) }}</div></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    <p style="font-size:12px; color:#777; margin:6px 0 0">
+      El porcentaje compara cada mes contra el mes anterior ("sin base" = el mes anterior no tuvo ventas).
+      El mes en curso se compara contra los mismos días del mes anterior.
+    </p>
   {% endif %}
 
   {# ---------- Filtro de período ---------- #}

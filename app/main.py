@@ -2502,6 +2502,14 @@ _METRICAS = (
 )
 
 
+def _pct_cambio(actual: float, previo: float) -> float | None:
+    """% que subió (+) o bajó (-) `actual` respecto a `previo`. None si no
+    hay base de comparación (el periodo anterior fue 0)."""
+    if not previo:
+        return None
+    return (actual - previo) / previo * 100
+
+
 def _resumen(row) -> dict:
     """Convierte una fila de métricas a números limpios y calcula el margen %."""
     piezas = int(row["piezas"] or 0)
@@ -2717,12 +2725,33 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             f"SELECT {mes_local}::date AS mes, s.nombre AS sucursal, "
             "       SUM(v.precio_unitario * v.cantidad) AS ventas, SUM(v.cantidad) AS piezas "
             "FROM ventas v JOIN sucursales s ON s.id = v.sucursal_id "
-            f"WHERE {mes_local} >= date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '11 months' "
+            # 12 meses atrás (13 en total) para que el mes más viejo que se
+            # muestra también tenga un mes anterior contra el cual compararse.
+            f"WHERE {mes_local} >= date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '12 months' "
             "  AND (NOT v.apartado OR "
             "       (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
             "       >= v.precio_unitario * v.cantidad) "
             "GROUP BY 1, 2"
         )).mappings().all()
+
+        # El mes en curso todavía no termina, así que compararlo contra el mes
+        # anterior COMPLETO saldría siempre en "bajó". Se compara contra los
+        # mismos días del mes anterior (ej. del 1 al 6 vs. del 1 al 6).
+        prev_anio, prev_mes = (hoy.year, hoy.month - 1) if hoy.month > 1 else (hoy.year - 1, 12)
+        prev_ini = date(prev_anio, prev_mes, 1)
+        prev_fin = date(prev_anio, prev_mes, min(hoy.day, calendar.monthrange(prev_anio, prev_mes)[1]))
+        prev_mismo_periodo = {
+            r["sucursal"]: float(r["ventas"] or 0)
+            for r in conn.execute(text(
+                "SELECT s.nombre AS sucursal, SUM(v.precio_unitario * v.cantidad) AS ventas "
+                "FROM ventas v JOIN sucursales s ON s.id = v.sucursal_id "
+                "WHERE (v.creada_en AT TIME ZONE 'America/Mexico_City')::date BETWEEN :ini AND :fin "
+                "  AND (NOT v.apartado OR "
+                "       (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
+                "       >= v.precio_unitario * v.cantidad) "
+                "GROUP BY 1"
+            ), {"ini": prev_ini, "fin": prev_fin}).mappings().all()
+        }
 
         # Top 10 productos por ganancia bruta, en el mismo período filtrado.
         top_productos = conn.execute(text(
@@ -2764,12 +2793,23 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         total_mes = sum(por_suc.values())
         if i == 0 or total_mes > 0:
             ultimo_dia = calendar.monthrange(anio, mes)[1]
+            ant_anio, ant_mes = (anio, mes - 1) if mes > 1 else (anio - 1, 12)
+            if i == 0:
+                previo = prev_mismo_periodo
+                comparado = f"vs. 1 al {prev_fin.day} de {MESES_ES[prev_mes - 1]}"
+            else:
+                previo = ventas_por_mes.get((ant_anio, ant_mes), {})
+                comparado = f"vs. {MESES_ES[ant_mes - 1]}"
             meses_ventas.append({
                 "etiqueta": f"{MESES_ES[mes - 1].capitalize()} {anio}",
                 "rango": f"1 al {ultimo_dia} de {MESES_ES[mes - 1]}",
                 "por_sucursal": {nombre: por_suc.get(nombre, 0.0) for nombre in sucursales_mes},
                 "total": total_mes,
                 "actual": i == 0,
+                "comparado": comparado,
+                "cambio": {nombre: _pct_cambio(por_suc.get(nombre, 0.0), previo.get(nombre, 0.0))
+                           for nombre in sucursales_mes},
+                "cambio_total": _pct_cambio(total_mes, sum(previo.values())),
             })
         mes -= 1
         if mes == 0:
