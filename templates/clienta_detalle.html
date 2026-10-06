@@ -5,6 +5,9 @@
   {% if error %}
     <div class="aviso">{{ error }}</div>
   {% endif %}
+  {% if ok %}
+    <div class="aviso-ok">{{ ok }}</div>
+  {% endif %}
 
   <p><a href="/clientas">&larr; Volver a Clientas</a></p>
 
@@ -104,6 +107,12 @@
       {% else %}
         {% set estado_nota = "Pendiente" %}
       {% endif %}
+      {% set ni = loop.index %}
+      {# Form "vacío": las casillas de prendas y los botones de abajo se asocian a él con
+         form="nota-N" (no se anida un <form> dentro de otro). #}
+      <form id="nota-{{ ni }}" method="post" action="/ventas/devolucion-varias">
+        <input type="hidden" name="siguiente" value="/clientas/{{ clienta.id }}">
+      </form>
       <div class="tarjeta" style="margin-bottom:16px">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px">
           <div>
@@ -132,6 +141,7 @@
           <table>
             <thead>
               <tr>
+                <th></th>
                 <th>Producto</th>
                 <th>Cant.</th>
                 <th>Precio</th>
@@ -141,7 +151,18 @@
             <tbody>
               {% for it in n.prendas %}
                 <tr>
-                  <td><span style="color:var(--texto-tenue); font-size:12px">{{ it.sku }}</span> {{ it.titulo }}</td>
+                  <td>
+                    <input type="checkbox" name="id" value="{{ it.id }}" form="nota-{{ ni }}"
+                           {% if it.devolucion_tipo %}disabled{% endif %}>
+                  </td>
+                  <td>
+                    <span style="color:var(--texto-tenue); font-size:12px">{{ it.sku }}</span> {{ it.titulo }}
+                    {% if it.devolucion_tipo %}
+                      <span class="badge" style="background:var(--ambar-suave); color:var(--ambar)">
+                        {{ "Devuelta" if it.devolucion_tipo == "devolucion" else "Cambio" }}
+                      </span>
+                    {% endif %}
+                  </td>
                   <td class="num">{{ it.cantidad }}</td>
                   <td class="num">${{ "%.2f"|format(it.precio_unitario) }}</td>
                   <td class="num">${{ "%.2f"|format(it.subtotal) }}</td>
@@ -160,6 +181,27 @@
           {% for d in n.metodos %}
             <span>{{ d.metodo }}: <strong>${{ "%.2f"|format(d.monto) }}</strong></span>
           {% endfor %}
+        </div>
+
+        <div style="display:flex; gap:6px; align-items:center; margin-top:10px; flex-wrap:wrap">
+          <select form="nota-{{ ni }}" name="tipo" style="width:auto; padding:5px 8px; font-size:12.5px">
+            <option value="devolucion">Devolución</option>
+            <option value="cambio">Cambio</option>
+          </select>
+          <input type="text" form="nota-{{ ni }}" name="motivo" placeholder="Motivo (opc.)"
+                 style="width:120px; padding:5px 8px; font-size:12.5px">
+          <button type="submit" form="nota-{{ ni }}" class="btn-sm btn-advertencia"
+                  onclick="return confirm('¿Registrar las prendas marcadas como devueltas/cambiadas? Se repone el stock, pero quedan en el historial (no se borran).');">
+            ↩ Devolver prendas marcadas
+          </button>
+          <form method="post" action="/ventas/eliminar-varias" style="margin-left:auto"
+                onsubmit="return confirm('¿Eliminar esta nota COMPLETA ({{ n.prendas|length }} prenda(s))? Se repone el stock de cada una. Esta acción no se puede deshacer.');">
+            <input type="hidden" name="siguiente" value="/clientas/{{ clienta.id }}">
+            {% for vid in n.venta_ids %}
+              <input type="hidden" name="id" value="{{ vid }}">
+            {% endfor %}
+            <button type="submit" class="btn-sm btn-peligro">Eliminar nota completa</button>
+          </form>
         </div>
 
         {% if n.saldo > 0 %}

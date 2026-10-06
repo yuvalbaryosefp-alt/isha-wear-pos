@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -818,7 +819,8 @@ def ver_ventas(
             "SELECT v.id, v.creada_en, p.sku, p.titulo, s.nombre AS sucursal, v.canal, "
             "       v.tipo_precio, c.nombre AS clienta, ve.nombre AS vendedora, "
             "       v.cantidad, v.precio_unitario, "
-            "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo, v.apartado "
+            "       (v.precio_unitario * v.cantidad) AS total, d.tipo AS devolucion_tipo, v.apartado, "
+            "       COALESCE(v.pedido_id, 'v' || v.id::text) AS nota_clave "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
@@ -861,6 +863,7 @@ def ver_ventas(
 
         ventas.append({
             "id": v["id"],
+            "nota_clave": v["nota_clave"],
             "creada_en": v["creada_en"].astimezone(ZONA_CDMX),
             "sku": v["sku"],
             "titulo": v["titulo"],
@@ -996,11 +999,18 @@ def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
 
 
 @app.post("/ventas/eliminar-varias", dependencies=[Depends(requiere_admin)])
-def eliminar_ventas_varias(background_tasks: BackgroundTasks, id: list[int] = Form(...)):
+def eliminar_ventas_varias(
+    background_tasks: BackgroundTasks,
+    id: list[int] = Form(...),
+    siguiente: str = Form("/ventas"),  # a dónde regresar: la lista de ventas o la ficha de una clienta
+):
     """Elimina varias ventas marcadas de un jalón (ej. limpiar varias de
-    prueba a la vez), en vez de una por una. Misma lógica que eliminar_venta
-    para cada una: repone el stock, deja un movimiento de ajuste, y se salta
-    (sin tronar) las que ya se registraron como devolución/cambio."""
+    prueba a la vez, o una nota completa), en vez de una por una. Misma
+    lógica que eliminar_venta para cada una: repone el stock, deja un
+    movimiento de ajuste, y se salta (sin tronar) las que ya se registraron
+    como devolución/cambio."""
+    if not (siguiente == "/ventas" or re.fullmatch(r"/clientas/\d+", siguiente)):
+        siguiente = "/ventas"
     eliminadas = 0
     saltadas = 0
     productos_tocados: set[int] = set()
@@ -1043,7 +1053,7 @@ def eliminar_ventas_varias(background_tasks: BackgroundTasks, id: list[int] = Fo
     mensaje = f"Se eliminaron {eliminadas} venta(s)."
     if saltadas:
         mensaje += f" {saltadas} no se pudieron eliminar (ya son devolución/cambio)."
-    return RedirectResponse(f"/ventas?ok={mensaje}", status_code=303)
+    return RedirectResponse(f"{siguiente}?ok={mensaje}", status_code=303)
 
 
 @app.post("/ventas/{venta_id}/devolucion", dependencies=[Depends(requiere_admin)])
@@ -1068,47 +1078,100 @@ def registrar_devolucion(
         return RedirectResponse("/ventas?error=Tipo de devolución inválido.", status_code=303)
 
     with engine.begin() as conn:
-        venta = conn.execute(text(
-            "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
-        ), {"id": venta_id}).mappings().one_or_none()
+        estado, producto_id = aplicar_devolucion(conn, venta_id, tipo, motivo_usuario)
 
-        if venta is None:
-            return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
+    if estado == "no_existe":
+        return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
+    if estado == "ya_devuelta":
+        return RedirectResponse(
+            "/ventas?error=Esta venta ya se había registrado como devolución/cambio.",
+            status_code=303,
+        )
 
-        ya_devuelta = conn.execute(text(
-            "SELECT 1 FROM devoluciones WHERE venta_id = :id"
-        ), {"id": venta_id}).scalar()
-        if ya_devuelta:
-            return RedirectResponse(
-                "/ventas?error=Esta venta ya se había registrado como devolución/cambio.",
-                status_code=303,
-            )
-
-        # Repone el stock: la prenda física regresó a la sucursal de origen.
-        conn.execute(text(
-            "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
-            "WHERE producto_id = :p AND sucursal_id = :s"
-        ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
-
-        etiqueta = "Devolución" if tipo == "devolucion" else "Cambio"
-        motivo_movimiento = f"{etiqueta} de venta #{venta_id}"
-        if motivo_usuario:
-            motivo_movimiento += f" ({motivo_usuario})"
-
-        conn.execute(text(
-            "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
-            "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
-        ), {
-            "p": venta["producto_id"], "s": venta["sucursal_id"],
-            "delta": venta["cantidad"], "motivo": motivo_movimiento,
-        })
-
-        conn.execute(text(
-            "INSERT INTO devoluciones (venta_id, tipo, motivo) VALUES (:v, :tipo, :motivo)"
-        ), {"v": venta_id, "tipo": tipo, "motivo": motivo_usuario or None})
-
-    background_tasks.add_task(empujar_stock_producto_seguro, venta["producto_id"])
+    background_tasks.add_task(empujar_stock_producto_seguro, producto_id)
     return RedirectResponse("/ventas", status_code=303)
+
+
+def aplicar_devolucion(conn, venta_id: int, tipo: str, motivo_usuario: str):
+    """Registra la devolución/cambio de UNA venta (repone stock, deja
+    movimiento y el registro en `devoluciones`). Devuelve (estado, producto_id)
+    con estado "ok", "no_existe" o "ya_devuelta". Compartido por la
+    devolución individual y la de varias prendas a la vez."""
+    venta = conn.execute(text(
+        "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
+    ), {"id": venta_id}).mappings().one_or_none()
+    if venta is None:
+        return "no_existe", None
+
+    ya_devuelta = conn.execute(text(
+        "SELECT 1 FROM devoluciones WHERE venta_id = :id"
+    ), {"id": venta_id}).scalar()
+    if ya_devuelta:
+        return "ya_devuelta", venta["producto_id"]
+
+    # Repone el stock: la prenda física regresó a la sucursal de origen.
+    conn.execute(text(
+        "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
+        "WHERE producto_id = :p AND sucursal_id = :s"
+    ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
+
+    etiqueta = "Devolución" if tipo == "devolucion" else "Cambio"
+    motivo_movimiento = f"{etiqueta} de venta #{venta_id}"
+    if motivo_usuario:
+        motivo_movimiento += f" ({motivo_usuario})"
+
+    conn.execute(text(
+        "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
+        "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
+    ), {
+        "p": venta["producto_id"], "s": venta["sucursal_id"],
+        "delta": venta["cantidad"], "motivo": motivo_movimiento,
+    })
+
+    conn.execute(text(
+        "INSERT INTO devoluciones (venta_id, tipo, motivo) VALUES (:v, :tipo, :motivo)"
+    ), {"v": venta_id, "tipo": tipo, "motivo": motivo_usuario or None})
+    return "ok", venta["producto_id"]
+
+
+@app.post("/ventas/devolucion-varias", dependencies=[Depends(requiere_admin)])
+def registrar_devoluciones_varias(
+    background_tasks: BackgroundTasks,
+    id: list[int] = Form(...),
+    tipo: str = Form("devolucion"),
+    motivo: str = Form(""),
+    siguiente: str = Form("/ventas"),
+):
+    """Registra como devolución/cambio varias prendas marcadas de un jalón
+    (ej. de las 3 que se llevó, regresaron 2): misma lógica que la
+    devolución individual para cada una, y se salta las que ya estaban
+    devueltas."""
+    tipo = tipo.strip()
+    motivo_usuario = motivo.strip()
+    if not (siguiente == "/ventas" or re.fullmatch(r"/clientas/\d+", siguiente)):
+        siguiente = "/ventas"
+    if tipo not in ("devolucion", "cambio"):
+        return RedirectResponse(f"{siguiente}?error=Tipo de devolución inválido.", status_code=303)
+
+    devueltas = 0
+    saltadas = 0
+    productos_tocados: set[int] = set()
+    with engine.begin() as conn:
+        for venta_id in id:
+            estado, producto_id = aplicar_devolucion(conn, venta_id, tipo, motivo_usuario)
+            if estado == "ok":
+                devueltas += 1
+                productos_tocados.add(producto_id)
+            elif estado == "ya_devuelta":
+                saltadas += 1
+
+    if productos_tocados:
+        background_tasks.add_task(empujar_stock_productos_seguro, list(productos_tocados))
+
+    mensaje = f"Se registraron {devueltas} prenda(s) como {'devolución' if tipo == 'devolucion' else 'cambio'}; el stock ya se repuso."
+    if saltadas:
+        mensaje += f" {saltadas} ya estaban devueltas."
+    return RedirectResponse(f"{siguiente}?ok={mensaje}", status_code=303)
 
 
 @app.get("/ventas/nota")
@@ -1971,7 +2034,7 @@ def eliminar_clienta(cliente_id: int):
 
 
 @app.get("/clientas/{cliente_id}", dependencies=[Depends(requiere_admin)])
-def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
+def ver_clienta(request: Request, cliente_id: int, error: str | None = None, ok: str | None = None):
     """Ficha de una clienta: sus datos y su historial de compras, agrupado
     POR NOTA (cada visita/ocasión de compra por separado), no todo junto.
     Cada nota trae su propio total/pagado/saldo y se puede abonar o
@@ -1987,11 +2050,12 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
         compras_rows = conn.execute(text(
             "SELECT v.id, v.creada_en, v.pedido_id, v.numero_nota, v.numero_ticket, p.titulo, p.sku, "
             "       v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
-            "       v.canal, v.tipo_precio, v.descuento_pct, "
+            "       v.canal, v.tipo_precio, v.descuento_pct, d.tipo AS devolucion_tipo, "
             "       COALESCE((SELECT SUM(monto) FROM pagos WHERE venta_id = v.id), 0) AS pagado_venta "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
+            "LEFT JOIN devoluciones d ON d.venta_id = v.id "
             "WHERE v.cliente_id = :id ORDER BY v.creada_en DESC, v.id DESC"
         ), {"id": cliente_id}).mappings().all()
 
@@ -2036,8 +2100,9 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
         subtotal = float(c["precio_unitario"]) * c["cantidad"]
         nota["venta_ids"].append(c["id"])
         nota["prendas"].append({
-            "titulo": c["titulo"], "sku": c["sku"], "cantidad": c["cantidad"],
+            "id": c["id"], "titulo": c["titulo"], "sku": c["sku"], "cantidad": c["cantidad"],
             "precio_unitario": float(c["precio_unitario"]), "subtotal": subtotal,
+            "devolucion_tipo": c["devolucion_tipo"],
         })
         nota["total"] += subtotal
         nota["pagado"] += float(c["pagado_venta"])
@@ -2058,7 +2123,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
     saldo_total_clienta = round(sum(n["saldo"] for n in notas), 2)
 
     return templates.TemplateResponse(request, "clienta_detalle.html", {
-        "clienta": clienta, "notas": notas, "saldo_total_clienta": saldo_total_clienta, "error": error,
+        "clienta": clienta, "notas": notas, "saldo_total_clienta": saldo_total_clienta, "error": error, "ok": ok,
     })
 
 

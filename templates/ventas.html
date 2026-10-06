@@ -294,6 +294,17 @@
       🖨️ Imprimir nota de pedido
     </button>
     {% if identidad.rol == "admin" %}
+      <select form="form-nota" name="tipo" style="width:auto; padding:6px 10px; font-size:12.5px" title="Tipo de devolución">
+        <option value="devolucion">Devolución</option>
+        <option value="cambio">Cambio</option>
+      </select>
+      <input type="text" form="form-nota" name="motivo" placeholder="Motivo (opc.)"
+             style="width:120px; padding:6px 10px; font-size:12.5px">
+      <button type="submit" form="form-nota" formaction="/ventas/devolucion-varias" formmethod="post"
+              class="btn-sm btn-advertencia"
+              onclick="return confirm('¿Registrar las prendas marcadas como devueltas/cambiadas? Se repone el stock, pero las ventas quedan en el historial (no se borran).');">
+        ↩ Devolver seleccionadas
+      </button>
       <button type="submit" form="form-nota" formaction="/ventas/eliminar-varias" formmethod="post"
               class="btn-sm btn-peligro"
               onclick="return confirm('¿Eliminar las ventas marcadas? Se repone el stock de cada una. Esta acción no se puede deshacer.');">
@@ -303,7 +314,8 @@
   </h2>
   <p class="nota" style="margin-top:-8px">
     Marca las prendas que quieres incluir (ej. las 10 que se lleva una clienta) y elige una acción: imprimir su nota
-    (con cuántas copias) o eliminarlas de un jalón.
+    (con cuántas copias), registrar las que regresaron como devolución/cambio, o eliminarlas de un jalón.
+    El botón "nota" de cada fila marca de una vez todas las prendas de esa misma nota.
   </p>
 
   {# Form "vacío": las casillas y el botón de arriba se asocian a él vía el atributo form="form-nota",
@@ -340,8 +352,12 @@
       </thead>
       <tbody>
         {% for v in ventas %}
-          <tr>
-            <td><input type="checkbox" name="id" value="{{ v.id }}" form="form-nota"></td>
+          <tr data-nota="{{ v.nota_clave }}">
+            <td>
+              <input type="checkbox" name="id" value="{{ v.id }}" form="form-nota">
+              <button type="button" class="btn-sm btn-secundario" style="padding:2px 8px; font-size:11px; margin-left:4px"
+                      onclick="marcarNota(this)" title="Marcar todas las prendas de esta nota">nota</button>
+            </td>
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
             <td class="col-ancha"><span style="color:var(--texto-tenue); font-size:12px">{{ v.sku }}</span> {{ v.titulo }}</td>
             <td>{{ v.sucursal }}</td>
@@ -417,6 +433,17 @@
     </div>
 
     <script>
+      // Marca (o desmarca) todas las prendas de la misma nota que la fila tocada.
+      function marcarNota(boton) {
+        var nota = boton.closest('tr').dataset.nota;
+        var casillas = Array.prototype.filter.call(
+          document.querySelectorAll('#tabla-ventas tbody tr'),
+          function (tr) { return tr.dataset.nota === nota; }
+        ).map(function (tr) { return tr.querySelector('input[name="id"]'); });
+        var marcar = casillas.some(function (c) { return !c.checked; });
+        casillas.forEach(function (c) { c.checked = marcar; });
+      }
+
       // Filtra en vivo las filas de la tabla de ventas por SKU O por nombre
       // del producto (coincidencia parcial, sin distinguir mayúsculas/minúsculas)
       // — mismo buscador que ya existe en Inventario.
