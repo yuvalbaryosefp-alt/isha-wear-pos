@@ -1125,11 +1125,14 @@ def nota_pedido(
     # tarjeta, por ejemplo, entre el pago inicial y los abonos).
     etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
     pagado_por_venta: dict[int, float] = {}
-    metodos_distintos: set[str] = set()
+    pagado_por_metodo: dict[str, float] = {}
     for venta_id, metodo, monto in pagos:
         pagado_por_venta[venta_id] = pagado_por_venta.get(venta_id, 0.0) + float(monto)
-        metodos_distintos.add(etiquetas_metodo.get(metodo, metodo))
-    metodos_pago = ", ".join(sorted(metodos_distintos)) or None
+        pagado_por_metodo[metodo] = pagado_por_metodo.get(metodo, 0.0) + float(monto)
+    desglose_pagos = [
+        {"metodo": etiquetas_metodo[m], "monto": pagado_por_metodo[m]}
+        for m in ("efectivo", "tarjeta", "transferencia") if m in pagado_por_metodo
+    ]
 
     items = []
     total = 0.0
@@ -1187,7 +1190,7 @@ def nota_pedido(
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
         "cambio": cambio,
-        "metodos_pago": metodos_pago,
+        "desglose_pagos": desglose_pagos,
     })
 
 
@@ -1945,16 +1948,14 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
         ), {"id": cliente_id}).mappings().all()
 
         pagos_rows = conn.execute(text(
-            "SELECT p.venta_id, p.metodo FROM pagos p "
+            "SELECT p.venta_id, p.metodo, p.monto FROM pagos p "
             "JOIN ventas v ON v.id = p.venta_id WHERE v.cliente_id = :id"
         ), {"id": cliente_id}).mappings().all()
 
-    etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
-    metodos_por_venta: dict[int, set[str]] = {}
+    metodos_por_venta: dict[int, dict[str, float]] = {}
     for pg in pagos_rows:
-        metodos_por_venta.setdefault(pg["venta_id"], set()).add(
-            etiquetas_metodo.get(pg["metodo"], pg["metodo"])
-        )
+        por_metodo = metodos_por_venta.setdefault(pg["venta_id"], {})
+        por_metodo[pg["metodo"]] = por_metodo.get(pg["metodo"], 0.0) + float(pg["monto"])
 
     # Agrupa por "ticket" (pedido_id si vino de un carrito con varias
     # prendas; si no, su propio id — igual que el ticket promedio en
@@ -1979,7 +1980,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
                 "fecha": c["creada_en"].astimezone(ZONA_CDMX),
                 "total": 0.0,
                 "pagado": 0.0,
-                "metodos": set(),
+                "metodos": {},
             }
             orden_claves.append(clave)
         nota = notas_por_clave[clave]
@@ -1991,13 +1992,18 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
         })
         nota["total"] += subtotal
         nota["pagado"] += float(c["pagado_venta"])
-        nota["metodos"].update(metodos_por_venta.get(c["id"], set()))
+        for metodo, monto in metodos_por_venta.get(c["id"], {}).items():
+            nota["metodos"][metodo] = nota["metodos"].get(metodo, 0.0) + monto
 
     notas = []
     for clave in orden_claves:
         nota = notas_por_clave[clave]
         nota["saldo"] = round(nota["total"] - nota["pagado"], 2)
-        nota["metodos"] = ", ".join(sorted(nota["metodos"])) or "—"
+        etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
+        nota["metodos"] = [
+            {"metodo": etiquetas_metodo[m], "monto": nota["metodos"][m]}
+            for m in ("efectivo", "tarjeta", "transferencia") if m in nota["metodos"]
+        ]
         notas.append(nota)
 
     saldo_total_clienta = round(sum(n["saldo"] for n in notas), 2)

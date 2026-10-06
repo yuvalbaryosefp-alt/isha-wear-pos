@@ -160,12 +160,12 @@
               <td class="valor">${{ "%.2f"|format(cambio|float) }}</td>
             </tr>
           {% endif %}
-          {% if metodos_pago %}
+          {% for d in desglose_pagos %}
             <tr>
-              <td class="label">Método:</td>
-              <td class="valor">{{ metodos_pago }}</td>
+              <td class="label">Pagó en {{ d.metodo|lower }}:</td>
+              <td class="valor">${{ "%.2f"|format(d.monto) }}</td>
             </tr>
-          {% endif %}
+          {% endfor %}
         </table>
       {% else %}
         {# Nota pendiente: el saldo es lo que realmente importa, así que se
@@ -179,12 +179,12 @@
             <td class="label">Anticipo:</td>
             <td class="valor">${{ "%.2f"|format(pagado) }}</td>
           </tr>
-          {% if metodos_pago %}
+          {% for d in desglose_pagos %}
             <tr>
-              <td class="label">Método (anticipo):</td>
-              <td class="valor">{{ metodos_pago }}</td>
+              <td class="label">&nbsp;&nbsp;en {{ d.metodo|lower }}:</td>
+              <td class="valor">${{ "%.2f"|format(d.monto) }}</td>
             </tr>
-          {% endif %}
+          {% endfor %}
           <tr class="saldo-pendiente">
             <td class="label">Saldo pendiente:</td>
             <td class="valor">${{ "%.2f"|format(saldo) }}</td>
