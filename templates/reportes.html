@@ -51,6 +51,52 @@
 
   <h2>Reportes de ganancias</h2>
 
+  {# ---------- Ventas totales del mes, por sucursal (mes calendario completo) ---------- #}
+  {% set actual = meses_ventas[0] %}
+  <h2>Ventas de {{ actual.etiqueta }} <span style="font-size:13px; font-weight:400; color:#777">({{ actual.rango }})</span></h2>
+  <div class="stats">
+    {% for nombre in sucursales_mes %}
+      <div class="stat">
+        <div class="n">${{ "{:,.2f}".format(actual.por_sucursal[nombre]) }}</div>
+        <div class="l">{{ nombre }}</div>
+      </div>
+    {% endfor %}
+    <div class="stat destacado">
+      <div class="n">${{ "{:,.2f}".format(actual.total) }}</div>
+      <div class="l">Total del mes</div>
+    </div>
+  </div>
+  <p style="font-size:12px; color:#777; margin:6px 0 0">
+    Ventas del día 1 al último día del mes, hora de México (CST). Es independiente de las fechas de abajo.
+    Los apartados con saldo pendiente cuentan hasta que se liquidan.
+  </p>
+
+  {% if meses_ventas|length > 1 %}
+    <h2>Ventas por mes</h2>
+    <div class="tabla-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Mes</th>
+            {% for nombre in sucursales_mes %}<th>{{ nombre }}</th>{% endfor %}
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in meses_ventas %}
+            <tr>
+              <td>{{ m.etiqueta }}{% if m.actual %} <span style="font-size:11px; color:#777">(en curso)</span>{% endif %}</td>
+              {% for nombre in sucursales_mes %}
+                <td class="num">${{ "{:,.2f}".format(m.por_sucursal[nombre]) }}</td>
+              {% endfor %}
+              <td class="num"><strong>${{ "{:,.2f}".format(m.total) }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   {# ---------- Filtro de período ---------- #}
   <div class="tarjeta">
     <form method="get" action="/reportes" class="filtro">

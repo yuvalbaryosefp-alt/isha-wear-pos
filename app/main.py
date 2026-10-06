@@ -9,6 +9,7 @@ Para correrlo (desde la carpeta del proyecto):
 Luego abrir en el navegador:  http://127.0.0.1:8000
 """
 
+import calendar
 import csv
 import hashlib
 import io
@@ -50,6 +51,9 @@ FOTO_ANCHO_MAX = 1000
 DIAS_SIN_COMPRAR_ALERTA = 60
 
 # Canales de venta válidos y su nombre bonito para mostrar en pantalla/reportes.
+MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+            "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
 CANALES = {
     "boutique": "Boutique",
     "ecommerce": "E-commerce",
@@ -2523,7 +2527,7 @@ def corte_caja(request: Request, fecha: str | None = None):
     hoy debe contar en el corte de HOY, no en el de ayer.
     """
     if not fecha:
-        fecha = date.today().isoformat()
+        fecha = datetime.now(ZONA_CDMX).date().isoformat()
 
     with engine.connect() as conn:
         sucursales = conn.execute(text(
@@ -2581,7 +2585,7 @@ def corte_caja(request: Request, fecha: str | None = None):
 def exportar_ventas(desde: str | None = None, hasta: str | None = None):
     """Descarga en CSV el detalle de ventas del período (mismo filtro de
     fechas que /reportes), para el contador o análisis fuera del sistema."""
-    hoy = date.today()
+    hoy = datetime.now(ZONA_CDMX).date()
     if not desde:
         desde = hoy.replace(day=1).isoformat()
     if not hasta:
@@ -2597,7 +2601,7 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
             "JOIN sucursales s ON s.id = v.sucursal_id "
             "LEFT JOIN clientas c ON c.id = v.cliente_id "
             "LEFT JOIN vendedoras ve ON ve.id = v.vendedora_id "
-            "WHERE v.creada_en::date BETWEEN :desde AND :hasta "
+            "WHERE (v.creada_en AT TIME ZONE 'America/Mexico_City')::date BETWEEN :desde AND :hasta "
             # Igual que en /reportes: los apartados con saldo pendiente no
             # cuentan todavía (no se han cobrado de verdad).
             "AND (NOT v.apartado OR "
@@ -2641,18 +2645,20 @@ def exportar_ventas(desde: str | None = None, hasta: str | None = None):
 def reportes(request: Request, desde: str | None = None, hasta: str | None = None):
     """Reporte de ganancia bruta por período, con desglose por categoría, sucursal y canal."""
     # Por defecto, del primer día del mes actual hasta hoy.
-    hoy = date.today()
+    hoy = datetime.now(ZONA_CDMX).date()
     if not desde:
         desde = hoy.replace(day=1).isoformat()
     if not hasta:
         hasta = hoy.isoformat()
 
-    # Filtra por la fecha de la venta (comparando solo la parte de fecha).
+    # Filtra por la fecha de la venta EN HORA DE MÉXICO (CST, UTC-6, la misma
+    # de time.is/cst): sin la conversión, una venta de las 7 pm cae en el día
+    # siguiente porque el servidor guarda/compara en UTC.
     # Los apartados con saldo pendiente NO cuentan como ingreso/ganancia
     # todavía (la prenda salió pero no se ha cobrado); en cuanto se terminan
     # de pagar, el subquery de pagos ya cubre el total y entran solos.
     where = (
-        "WHERE v.creada_en::date BETWEEN :desde AND :hasta "
+        "WHERE (v.creada_en AT TIME ZONE 'America/Mexico_City')::date BETWEEN :desde AND :hasta "
         "AND (NOT v.apartado OR "
         "     (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
         "     >= v.precio_unitario * v.cantidad)"
@@ -2700,6 +2706,24 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             ") sub"
         ), params).mappings().one()
 
+        # Ventas totales por MES CALENDARIO (del día 1 al último día de cada
+        # mes, en hora de México) y por sucursal — independiente del filtro
+        # Desde/Hasta de arriba. Últimos 12 meses; mismo criterio de apartados.
+        sucursales_activas = conn.execute(text(
+            "SELECT nombre FROM sucursales WHERE activa = TRUE ORDER BY id"
+        )).scalars().all()
+        mes_local = "date_trunc('month', v.creada_en AT TIME ZONE 'America/Mexico_City')"
+        ventas_mes_rows = conn.execute(text(
+            f"SELECT {mes_local}::date AS mes, s.nombre AS sucursal, "
+            "       SUM(v.precio_unitario * v.cantidad) AS ventas, SUM(v.cantidad) AS piezas "
+            "FROM ventas v JOIN sucursales s ON s.id = v.sucursal_id "
+            f"WHERE {mes_local} >= date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '11 months' "
+            "  AND (NOT v.apartado OR "
+            "       (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
+            "       >= v.precio_unitario * v.cantidad) "
+            "GROUP BY 1, 2"
+        )).mappings().all()
+
         # Top 10 productos por ganancia bruta, en el mismo período filtrado.
         top_productos = conn.execute(text(
             f"SELECT p.id, p.sku, p.titulo, {_METRICAS} "
@@ -2724,6 +2748,32 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             "ORDER BY ultima_venta ASC NULLS FIRST "
             "LIMIT 50"
         ), {"dias": DIAS_SIN_VENDER_ALERTA}).mappings().all()
+
+    sucursales_mes = list(sucursales_activas)
+    for r in ventas_mes_rows:
+        if r["sucursal"] not in sucursales_mes:
+            sucursales_mes.append(r["sucursal"])
+    ventas_por_mes: dict[tuple, dict] = {}
+    for r in ventas_mes_rows:
+        ventas_por_mes.setdefault((r["mes"].year, r["mes"].month), {})[r["sucursal"]] = float(r["ventas"] or 0)
+
+    meses_ventas = []
+    anio, mes = hoy.year, hoy.month
+    for i in range(12):
+        por_suc = ventas_por_mes.get((anio, mes), {})
+        total_mes = sum(por_suc.values())
+        if i == 0 or total_mes > 0:
+            ultimo_dia = calendar.monthrange(anio, mes)[1]
+            meses_ventas.append({
+                "etiqueta": f"{MESES_ES[mes - 1].capitalize()} {anio}",
+                "rango": f"1 al {ultimo_dia} de {MESES_ES[mes - 1]}",
+                "por_sucursal": {nombre: por_suc.get(nombre, 0.0) for nombre in sucursales_mes},
+                "total": total_mes,
+                "actual": i == 0,
+            })
+        mes -= 1
+        if mes == 0:
+            anio, mes = anio - 1, 12
 
     canal_filas = []
     for r in por_canal:
@@ -2760,6 +2810,8 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         "por_sucursal": [_resumen(r) for r in por_sucursal],
         "por_canal": canal_filas,
         "por_vendedora": [_resumen(r) for r in por_vendedora],
+        "meses_ventas": meses_ventas,
+        "sucursales_mes": sucursales_mes,
         "num_tickets": int(ticket["num_tickets"] or 0),
         "ticket_promedio": float(ticket["ticket_promedio"]) if ticket["ticket_promedio"] is not None else 0.0,
         "top_productos": top_productos_filas,
