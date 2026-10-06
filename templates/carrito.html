@@ -195,6 +195,20 @@
       document.querySelectorAll('#filas-carrito tr').forEach(validarStockFila);
     });
 
+    // Canal "Mayoreo" = todas las prendas a precio de mayoreo (se puede
+    // cambiar a mano en una fila si hace falta); cualquier otro canal, menudeo.
+    function tipoPrecioPorCanal() {
+      return document.getElementById('c_canal').value === 'mayoreo' ? 'mayoreo' : 'menudeo';
+    }
+
+    document.getElementById('c_canal').addEventListener('change', function () {
+      var tipo = tipoPrecioPorCanal();
+      document.querySelectorAll('#filas-carrito .sel-tipo').forEach(function (sel) {
+        sel.value = tipo;
+        sel.dispatchEvent(new Event('change'));
+      });
+    });
+
     function agregarFila() {
       var tr = document.createElement('tr');
       tr.innerHTML =
@@ -211,6 +225,7 @@
         '<td class="num subtotal-fila">—</td>' +
         '<td><button type="button" onclick="quitarFila(this)" style="margin:0; padding:6px 10px; background:none; color:#B02A2A; border:1px solid #F5B5B5">✕</button></td>';
       document.getElementById('filas-carrito').appendChild(tr);
+      tr.querySelector('.sel-tipo').value = tipoPrecioPorCanal();
       conectarFila(tr);
       tr.querySelector('.inp-sku').focus(); // listo para escribir/escanear el siguiente SKU sin dar clic
     }

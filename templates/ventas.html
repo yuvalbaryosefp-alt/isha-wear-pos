@@ -218,6 +218,13 @@
       skuEl.addEventListener('input', resolverSku);
       skuEl.addEventListener('change', resolverSku);
       tipoEl.addEventListener('change', resolverSku);
+
+      // Canal "Mayoreo" pone el tipo de precio en mayoreo solo (se puede
+      // cambiar a mano después); cualquier otro canal, menudeo.
+      document.getElementById('v_canal').addEventListener('change', function () {
+        tipoEl.value = this.value === 'mayoreo' ? 'mayoreo' : 'menudeo';
+        resolverSku();
+      });
       cantidadEl.addEventListener('input', validarStock);
       sucursalEl.addEventListener('change', validarStock);
 
