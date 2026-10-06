@@ -319,6 +319,39 @@
       document.getElementById('total-carrito').textContent = '$' + total.toFixed(0);
     }
 
+    // Enter en cualquier campo de una prenda NO envía la venta: confirma esa
+    // prenda y abre una fila nueva lista para el siguiente SKU. La venta solo
+    // se registra con el botón "Registrar venta múltiple". Se espera un
+    // instante (setTimeout) para que el SKU elegido del menú desplegable ya
+    // esté resuelto cuando se revisa.
+    document.getElementById('filas-carrito').addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      var tr = e.target.closest('tr');
+      setTimeout(function () {
+        var skuEl = tr.querySelector('.inp-sku');
+        if (!tr.querySelector('.inp-producto-id').value) {
+          skuEl.dispatchEvent(new Event('change')); // muestra "No encontrado." si hace falta
+          skuEl.focus();
+          return;
+        }
+        var filas = document.querySelectorAll('#filas-carrito tr');
+        var ultima = filas[filas.length - 1];
+        if (ultima === tr) {
+          agregarFila();
+        } else {
+          ultima.querySelector('.inp-sku').focus();
+        }
+      }, 0);
+    });
+
+    // Lo mismo para "+ Nueva clienta": Enter la guarda en vez de enviar la venta.
+    ['c_nueva_clienta_nombre', 'c_nueva_clienta_telefono'].forEach(function (id) {
+      document.getElementById(id).addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); guardarNuevaClienta(); }
+      });
+    });
+
     // Arranca el carrito con una fila lista para usarse.
     agregarFila();
 
