@@ -107,7 +107,14 @@
       <div class="tarjeta" style="margin-bottom:16px">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px">
           <div>
-            <strong>{% if n.numero_nota %}Nota #{{ n.numero_nota }}{% else %}Nota{% endif %} · {{ n.sucursal }}</strong>
+            <strong>
+              {% if n.saldo <= 0 %}Ticket{% if n.numero_ticket %} #{{ n.numero_ticket }}{% endif %}
+              {% else %}Nota{% if n.numero_nota %} #{{ n.numero_nota }}{% endif %}{% endif %}
+              · {{ n.sucursal }}
+            </strong>
+            {% if n.saldo <= 0 and n.numero_nota and n.numero_nota != n.numero_ticket %}
+              <span style="font-size:12px; color:var(--texto-tenue)">(antes nota #{{ n.numero_nota }})</span>
+            {% endif %}
             <span class="badge {{ estado_nota|lower }}" style="margin-left:8px">{{ estado_nota }}</span>
             <div style="font-size:12px; color:var(--texto-tenue); margin-top:2px">
               {{ n.fecha.strftime("%d/%m/%Y %H:%M") }}

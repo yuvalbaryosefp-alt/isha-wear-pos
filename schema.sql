@@ -186,6 +186,43 @@ CREATE TABLE IF NOT EXISTS notas_folio (
     ultimo_numero INTEGER NOT NULL DEFAULT 0
 );
 
+-- Los TICKETS (ventas ya liquidadas) llevan su propia numeración, aparte de
+-- la de las notas pendientes (numero_nota): así una nota que se liquida
+-- semanas después ya no desordena la serie de tickets. Un ticket recibe su
+-- número en el momento en que queda pagado por completo.
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS numero_ticket INTEGER;
+
+-- Una sola vez (solo si tickets_folio todavía no existe): las notas que ya
+-- estaban liquidadas conservan el número que traían impreso como su número
+-- de ticket, y el contador de tickets de cada sucursal sigue desde el mayor.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                   WHERE table_schema = 'public' AND table_name = 'tickets_folio') THEN
+        CREATE TABLE tickets_folio (
+            sucursal_id   BIGINT PRIMARY KEY REFERENCES sucursales(id) ON DELETE CASCADE,
+            ultimo_numero INTEGER NOT NULL DEFAULT 0
+        );
+
+        UPDATE ventas SET numero_ticket = numero_nota
+        WHERE numero_nota IS NOT NULL
+          AND COALESCE(pedido_id, 'v' || id::text) IN (
+              SELECT clave FROM (
+                  SELECT COALESCE(v2.pedido_id, 'v' || v2.id::text) AS clave,
+                         v2.precio_unitario * v2.cantidad AS tot,
+                         COALESCE((SELECT SUM(monto) FROM pagos WHERE venta_id = v2.id), 0) AS pag
+                  FROM ventas v2
+              ) x
+              GROUP BY clave
+              HAVING SUM(tot) - SUM(pag) <= 0
+          );
+
+        INSERT INTO tickets_folio (sucursal_id, ultimo_numero)
+        SELECT sucursal_id, MAX(numero_ticket) FROM ventas
+        WHERE numero_ticket IS NOT NULL GROUP BY sucursal_id;
+    END IF;
+END $$;
+
 -- Marca una venta como apartado (la prenda ya salió del stock, pero la
 -- clienta todavía no la paga completa). Los reportes financieros excluyen
 -- los apartados mientras les quede saldo pendiente, para no contar como

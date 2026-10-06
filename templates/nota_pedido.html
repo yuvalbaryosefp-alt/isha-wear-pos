@@ -113,7 +113,14 @@
       </div>
 
       <div class="datos">
-        <p><strong>{{ "Ticket de venta" if pagado_completo else "Nota pendiente de liquidar" }}{% if numero_nota %} #{{ numero_nota }}{% endif %}{% if sucursal %} · {{ sucursal }}{% endif %}</strong></p>
+        {# Series separadas: el ticket (ya liquidado) lleva su propio número;
+           la nota pendiente lleva el suyo. Una nota que se liquida después
+           conserva su número de nota original como referencia. #}
+        {% set folio = numero_ticket if pagado_completo else numero_nota %}
+        <p><strong>{{ "Ticket de venta" if pagado_completo else "Nota pendiente de liquidar" }}{% if folio %} #{{ folio }}{% endif %}{% if sucursal %} · {{ sucursal }}{% endif %}</strong></p>
+        {% if pagado_completo and numero_nota and numero_nota != numero_ticket %}
+          <p>Antes nota pendiente #{{ numero_nota }}</p>
+        {% endif %}
         <p>
           <span class="estado {{ 'pagado' if pagado_completo else 'pendiente' }}">
             {{ "PAGADO" if pagado_completo else "PENDIENTE DE PAGO" }}

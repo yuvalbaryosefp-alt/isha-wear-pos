@@ -218,6 +218,42 @@ def siguiente_numero_nota(conn, sucursal_id: int) -> int:
     ), {"s": sucursal_id}).scalar_one()
 
 
+def siguiente_numero_ticket(conn, sucursal_id: int) -> int:
+    """Folio consecutivo de los TICKETS (ventas ya liquidadas), aparte del de
+    las notas pendientes y también por sucursal. Así una nota que se liquida
+    semanas después no deja huecos ni desorden en la serie de tickets."""
+    return conn.execute(text(
+        "INSERT INTO tickets_folio (sucursal_id, ultimo_numero) VALUES (:s, 1) "
+        "ON CONFLICT (sucursal_id) DO UPDATE SET ultimo_numero = tickets_folio.ultimo_numero + 1 "
+        "RETURNING ultimo_numero"
+    ), {"s": sucursal_id}).scalar_one()
+
+
+def asignar_ticket_si_liquidada(conn, venta_ids) -> None:
+    """Después de registrar un pago: si la nota (todas las líneas del mismo
+    pedido) quedó liquidada y todavía no tiene número de ticket, le asigna el
+    siguiente de su sucursal. Conserva su número de nota original."""
+    claves = conn.execute(text(
+        "SELECT DISTINCT COALESCE(pedido_id, 'v' || id::text) FROM ventas WHERE id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True)), {"ids": list(venta_ids)}).scalars().all()
+
+    for clave in claves:
+        lineas = conn.execute(text(
+            "SELECT v.id, v.sucursal_id, v.numero_ticket, (v.precio_unitario * v.cantidad) AS total, "
+            "       COALESCE((SELECT SUM(monto) FROM pagos WHERE venta_id = v.id), 0) AS pagado "
+            "FROM ventas v WHERE COALESCE(v.pedido_id, 'v' || v.id::text) = :c"
+        ), {"c": clave}).mappings().all()
+        if not lineas or any(l["numero_ticket"] is not None for l in lineas):
+            continue
+        saldo = round(sum(float(l["total"]) for l in lineas) - sum(float(l["pagado"]) for l in lineas), 2)
+        if saldo > 0:
+            continue
+        numero = siguiente_numero_ticket(conn, lineas[0]["sucursal_id"])
+        conn.execute(text(
+            "UPDATE ventas SET numero_ticket = :n WHERE id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True)), {"n": numero, "ids": [l["id"] for l in lineas]})
+
+
 def calcular_precio_desde_utilidad(costo, utilidad_pct) -> float | None:
     """precio = costo × (1 + utilidad_pct/100), redondeado a pesos enteros
     (en la tienda no se manejan centavos). None si falta costo o utilidad."""
@@ -711,18 +747,21 @@ def registrar_venta(
 
         # 3) Guarda el registro financiero (cliente_id puede ser None).
         # pedido_id propio: una venta individual es un ticket de una sola línea.
-        numero_nota = siguiente_numero_nota(conn, sucursal_id)
+        # Pagada completa = ticket (serie propia); con saldo = nota pendiente.
+        liquidada = round(total_venta - monto_pagado_num, 2) <= 0
+        numero_nota = None if liquidada else siguiente_numero_nota(conn, sucursal_id)
+        numero_ticket = siguiente_numero_ticket(conn, sucursal_id) if liquidada else None
         venta_id = conn.execute(text(
             "INSERT INTO ventas "
             "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-            " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, apartado) "
-            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :vendedora, :descuento, :pedido, :numero, :apartado) "
+            " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, numero_ticket, apartado) "
+            "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :vendedora, :descuento, :pedido, :numero, :ticket, :apartado) "
             "RETURNING id"
         ), {
             "p": producto_id, "s": sucursal_id, "canal": canal, "tipo_precio": tipo_precio,
             "cant": cantidad_num, "precio": precio_unitario, "costo": costo_unitario,
             "cliente": cliente_id_num, "vendedora": vendedora_id_num, "descuento": descuento_pct,
-            "pedido": str(uuid.uuid4()), "numero": numero_nota, "apartado": apartado,
+            "pedido": str(uuid.uuid4()), "numero": numero_nota, "ticket": numero_ticket, "apartado": apartado,
         }).scalar_one()
 
         # 4) Registra el pago inicial (ya validado arriba). Si el monto es 0,
@@ -882,6 +921,7 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
         conn.execute(text(
             "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
         ), {"v": venta_id, "metodo": metodo, "monto": monto_num})
+        asignar_ticket_si_liquidada(conn, [venta_id])
 
     # Manda directo al comprobante imprimible del abono, en vez de solo
     # regresar a la lista.
@@ -1104,7 +1144,7 @@ def nota_pedido(
     with engine.connect() as conn:
         filas = conn.execute(ids_stmt(
             "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, "
-            "       v.numero_nota, s.nombre AS sucursal, ve.nombre AS vendedora "
+            "       v.numero_nota, v.numero_ticket, s.nombre AS sucursal, ve.nombre AS vendedora "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
@@ -1139,6 +1179,7 @@ def nota_pedido(
     pagado_total = 0.0
     clientas_distintas = set()
     numeros_distintos = set()
+    tickets_distintos = set()
     sucursales_distintas = set()
     vendedoras_distintas = set()
     for f in filas:
@@ -1147,6 +1188,7 @@ def nota_pedido(
         pagado_total += pagado_por_venta.get(f["id"], 0.0)
         clientas_distintas.add(f["clienta"])
         numeros_distintos.add(f["numero_nota"])
+        tickets_distintos.add(f["numero_ticket"])
         sucursales_distintas.add(f["sucursal"])
         vendedoras_distintas.add(f["vendedora"])
         items.append({
@@ -1162,6 +1204,7 @@ def nota_pedido(
     # Igual con el folio: si se seleccionaron ventas de tickets distintos a
     # mano (ej. desde /ventas), no hay un solo número que aplique a todas.
     numero_nota = next(iter(numeros_distintos)) if len(numeros_distintos) == 1 else None
+    numero_ticket = next(iter(tickets_distintos)) if len(tickets_distintos) == 1 else None
 
     # El folio se repite entre sucursales (cada una tiene su propio #1, #2...),
     # así que en la nota se muestra junto con la sede para no confundirlos.
@@ -1186,6 +1229,7 @@ def nota_pedido(
         "clienta": clienta_nombre,
         "vendedora": vendedora_nombre,
         "numero_nota": numero_nota,
+        "numero_ticket": numero_ticket,
         "sucursal": sucursal_nombre,
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
@@ -1338,7 +1382,9 @@ def registrar_carrito(
         # UN ticket (para el ticket promedio), no uno por prenda. Mismo folio
         # de nota para todas las líneas, por la misma razón.
         pedido_id = str(uuid.uuid4())
-        numero_nota = siguiente_numero_nota(conn, sucursal_id)
+        liquidada = round(total_pedido - monto_pagado_num, 2) <= 0
+        numero_nota = None if liquidada else siguiente_numero_nota(conn, sucursal_id)
+        numero_ticket = siguiente_numero_ticket(conn, sucursal_id) if liquidada else None
         venta_ids = []
         for it in items_resueltos:
             conn.execute(text(
@@ -1357,14 +1403,14 @@ def registrar_carrito(
             venta_id = conn.execute(text(
                 "INSERT INTO ventas "
                 "(producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
-                " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, apartado) "
-                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :vendedora, :descuento, :pedido, :numero, :apartado) "
+                " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, numero_ticket, apartado) "
+                "VALUES (:p, :s, :canal, :tipo_precio, :cant, :precio, :costo, :cliente, :vendedora, :descuento, :pedido, :numero, :ticket, :apartado) "
                 "RETURNING id"
             ), {
                 "p": it["producto_id"], "s": sucursal_id, "canal": canal, "tipo_precio": it["tipo_precio"],
                 "cant": it["cantidad"], "precio": it["precio_unitario"], "costo": it["costo_unitario"],
                 "cliente": cliente_id_num, "vendedora": vendedora_id_num, "descuento": it["descuento_pct"],
-                "pedido": pedido_id, "numero": numero_nota, "apartado": apartado,
+                "pedido": pedido_id, "numero": numero_nota, "ticket": numero_ticket, "apartado": apartado,
             }).scalar_one()
             venta_ids.append(venta_id)
 
@@ -1840,6 +1886,7 @@ def abonar_saldo_clienta(
             ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
             ventas_tocadas.append(v["id"])
             restante -= pago_este
+        asignar_ticket_si_liquidada(conn, ventas_tocadas)
 
     # Manda directo al comprobante imprimible de lo que se acaba de abonar
     # (las ventas que de verdad recibieron parte del pago, sin importar a
@@ -1897,6 +1944,7 @@ def abonar_nota(
                 "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
             ), {"v": v["id"], "metodo": metodo, "monto": round(pago_este, 2)})
             restante -= pago_este
+        asignar_ticket_si_liquidada(conn, id)
 
     # Manda directo al comprobante imprimible de esta nota completa (todas
     # sus prendas, no solo las que tocó este abono en particular).
@@ -1937,7 +1985,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
             return RedirectResponse("/clientas?error=Clienta no encontrada.", status_code=303)
 
         compras_rows = conn.execute(text(
-            "SELECT v.id, v.creada_en, v.pedido_id, v.numero_nota, p.titulo, p.sku, "
+            "SELECT v.id, v.creada_en, v.pedido_id, v.numero_nota, v.numero_ticket, p.titulo, p.sku, "
             "       v.cantidad, v.precio_unitario, s.nombre AS sucursal, "
             "       v.canal, v.tipo_precio, v.descuento_pct, "
             "       COALESCE((SELECT SUM(monto) FROM pagos WHERE venta_id = v.id), 0) AS pagado_venta "
@@ -1976,6 +2024,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None):
                 # otro nombre y ya.
                 "prendas": [],
                 "numero_nota": c["numero_nota"],
+                "numero_ticket": c["numero_ticket"],
                 "sucursal": c["sucursal"],
                 "fecha": c["creada_en"].astimezone(ZONA_CDMX),
                 "total": 0.0,
