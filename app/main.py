@@ -2815,6 +2815,28 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         if mes == 0:
             anio, mes = anio - 1, 12
 
+    # Datos de la gráfica de pastel por categoría: junta "Blusas" y "blusas"
+    # (misma categoría escrita distinto), deja las 5 que más vendieron y agrupa
+    # el resto en "Otras" — una pastel con 18 rebanadas no se puede leer.
+    juntas: dict[str, dict] = {}
+    for r in por_categoria:
+        etiqueta = (r["dim"] or "Sin categoría").strip()
+        clave = etiqueta.lower()
+        if clave not in juntas:
+            juntas[clave] = {"nombre": etiqueta[:1].upper() + etiqueta[1:], "ingresos": 0.0, "piezas": 0}
+        juntas[clave]["ingresos"] += float(r["ingresos"] or 0)
+        juntas[clave]["piezas"] += int(r["piezas"] or 0)
+    ordenadas = sorted(juntas.values(), key=lambda c: c["ingresos"], reverse=True)
+    pie_categorias = ordenadas[:5]
+    resto = ordenadas[5:]
+    if resto:
+        pie_categorias.append({
+            "nombre": "Otras", "otras": True,
+            "detalle": f"{len(resto)} categorías: " + ", ".join(c["nombre"] for c in resto),
+            "ingresos": sum(c["ingresos"] for c in resto),
+            "piezas": sum(c["piezas"] for c in resto),
+        })
+
     canal_filas = []
     for r in por_canal:
         fila = _resumen(r)
@@ -2847,6 +2869,7 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
         "hasta": hasta,
         "total": _resumen(total),
         "por_categoria": [_resumen(r) for r in por_categoria],
+        "pie_categorias": pie_categorias,
         "por_sucursal": [_resumen(r) for r in por_sucursal],
         "por_canal": canal_filas,
         "por_vendedora": [_resumen(r) for r in por_vendedora],

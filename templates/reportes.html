@@ -178,6 +178,144 @@
     prendas en una sola compra (individual o del carrito), cuentan como un solo ticket.
   </p>
 
+  {# ---------- Gráfica de pastel por categoría (mismo período filtrado) ---------- #}
+  <h2>Ventas por categoría ({{ desde }} a {{ hasta }})</h2>
+  {% if pie_categorias and total.ingresos > 0 %}
+    <style>
+      .pie-caja { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+      .pie-caja svg { width: 240px; height: 240px; flex: 0 0 auto; }
+      .pie-caja svg path, .pie-caja svg circle { stroke: #fcfcfb; stroke-width: 2; transition: opacity .12s; cursor: default; }
+      .pie-caja.hay-hover svg .rebanada:not(.activa) { opacity: .35; }
+      .pie-leyenda { flex: 1; min-width: 260px; }
+      .pie-fila { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; }
+      .pie-fila.activa { background: #f3f2ee; }
+      .pie-fila .muestra { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+      .pie-fila .nombre { flex: 1; color: #0b0b0b; }
+      .pie-fila .valor { color: #0b0b0b; font-variant-numeric: tabular-nums; text-align: right; }
+      .pie-fila .pct { color: #52514e; font-variant-numeric: tabular-nums; width: 52px; text-align: right; }
+      .pie-selector { display: inline-flex; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+      .pie-selector button { margin: 0; border: 0; border-radius: 0; background: #fff; color: var(--charcoal);
+                             padding: 6px 14px; font-size: 13px; cursor: pointer; }
+      .pie-selector button.on { background: var(--charcoal); color: #fff; }
+      .pie-tip { position: fixed; pointer-events: none; background: #0b0b0b; color: #fff; font-size: 12.5px;
+                 padding: 6px 10px; border-radius: 6px; display: none; z-index: 10; max-width: 260px; }
+    </style>
+    <div class="tarjeta">
+      <div class="pie-selector" role="group" aria-label="Qué medir">
+        <button type="button" class="on" data-medida="ingresos">Ventas ($)</button>
+        <button type="button" data-medida="piezas">Piezas</button>
+      </div>
+      <div class="pie-caja" id="pie-caja">
+        <svg id="pie-svg" viewBox="0 0 240 240" role="img" aria-label="Gráfica de pastel: ventas por categoría"></svg>
+        <div class="pie-leyenda" id="pie-leyenda"></div>
+      </div>
+      <p style="font-size:12px; color:#777; margin:10px 0 0">
+        Las 5 categorías que más vendieron; el resto se agrupa en "Otras" (pasa el cursor para ver cuáles).
+        El detalle completo de todas está en la tabla de abajo. Usa el mismo periodo que el resumen.
+      </p>
+    </div>
+    <div class="pie-tip" id="pie-tip"></div>
+    <script>
+      (function () {
+        var DATOS = {{ pie_categorias|tojson }};
+        // Colores en orden fijo (paleta categórica validada); "Otras" va en gris neutro.
+        var COLORES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'];
+        var GRIS = '#898781';
+        var medida = 'ingresos';
+        var svg = document.getElementById('pie-svg');
+        var leyenda = document.getElementById('pie-leyenda');
+        var caja = document.getElementById('pie-caja');
+        var tip = document.getElementById('pie-tip');
+        var CX = 120, CY = 120, R = 112;
+
+        DATOS.forEach(function (d, i) { d.color = d.otras ? GRIS : COLORES[i]; });
+
+        function esc(s) {
+          return String(s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+        function formato(d, v) {
+          return medida === 'ingresos'
+            ? '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : v.toLocaleString('es-MX') + ' pzs';
+        }
+        function punto(ang) {
+          return [CX + R * Math.sin(ang), CY - R * Math.cos(ang)];
+        }
+        function activar(i, encendido) {
+          caja.classList.toggle('hay-hover', encendido);
+          document.querySelectorAll('[data-i="' + i + '"]').forEach(function (el) {
+            el.classList.toggle('activa', encendido);
+          });
+        }
+
+        function dibujar() {
+          var total = DATOS.reduce(function (s, d) { return s + d[medida]; }, 0);
+          svg.innerHTML = '';
+          leyenda.innerHTML = '';
+          if (!total) { leyenda.textContent = 'Sin datos en este periodo.'; return; }
+
+          var inicio = 0;
+          DATOS.forEach(function (d, i) {
+            var frac = d[medida] / total;
+            var elem;
+            if (frac >= 0.9999) {
+              elem = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+              elem.setAttribute('cx', CX); elem.setAttribute('cy', CY); elem.setAttribute('r', R);
+            } else if (frac > 0) {
+              var fin = inicio + frac * 2 * Math.PI;
+              var a = punto(inicio), b = punto(fin);
+              elem = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              elem.setAttribute('d', 'M' + CX + ',' + CY + ' L' + a[0] + ',' + a[1] +
+                ' A' + R + ',' + R + ' 0 ' + (frac > 0.5 ? 1 : 0) + ' 1 ' + b[0] + ',' + b[1] + ' Z');
+              inicio = fin;
+            }
+            if (elem) {
+              elem.setAttribute('fill', d.color);
+              elem.setAttribute('class', 'rebanada');
+              elem.setAttribute('data-i', i);
+              svg.appendChild(elem);
+              elem.addEventListener('mouseenter', function () { activar(i, true); });
+              elem.addEventListener('mouseleave', function () { activar(i, false); tip.style.display = 'none'; });
+              elem.addEventListener('mousemove', function (e) {
+                tip.innerHTML = '<strong>' + esc(d.nombre) + '</strong><br>' + formato(d, d[medida]) +
+                  ' · ' + (frac * 100).toFixed(1) + '%' + (d.detalle ? '<br><span style="opacity:.8">' + esc(d.detalle) + '</span>' : '');
+                tip.style.display = 'block';
+                tip.style.left = (e.clientX + 14) + 'px';
+                tip.style.top = (e.clientY + 14) + 'px';
+              });
+            }
+
+            var fila = document.createElement('div');
+            fila.className = 'pie-fila';
+            fila.setAttribute('data-i', i);
+            fila.innerHTML = '<span class="muestra" style="background:' + d.color + '"></span>' +
+              '<span class="nombre">' + esc(d.nombre) + '</span>' +
+              '<span class="valor">' + formato(d, d[medida]) + '</span>' +
+              '<span class="pct">' + (frac * 100).toFixed(1) + '%</span>';
+            fila.addEventListener('mouseenter', function () { activar(i, true); });
+            fila.addEventListener('mouseleave', function () { activar(i, false); });
+            leyenda.appendChild(fila);
+          });
+        }
+
+        document.querySelectorAll('.pie-selector button').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            medida = btn.getAttribute('data-medida');
+            document.querySelectorAll('.pie-selector button').forEach(function (b) {
+              b.classList.toggle('on', b === btn);
+            });
+            dibujar();
+          });
+        });
+        dibujar();
+      })();
+    </script>
+  {% else %}
+    <div class="tarjeta vacio">Sin ventas en este período.</div>
+  {% endif %}
+
   {# ---------- Desgloses ---------- #}
   {{ tabla_desglose("Por categoría", "Categoría", por_categoria) }}
   {{ tabla_desglose("Por sucursal", "Sucursal", por_sucursal) }}
