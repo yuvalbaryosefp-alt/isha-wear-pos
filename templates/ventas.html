@@ -354,9 +354,11 @@
         {% for v in ventas %}
           <tr data-nota="{{ v.nota_clave }}">
             <td>
-              <input type="checkbox" name="id" value="{{ v.id }}" form="form-nota">
-              <button type="button" class="btn-sm btn-secundario" style="padding:2px 8px; font-size:11px; margin-left:4px"
-                      onclick="marcarNota(this)" title="Marcar todas las prendas de esta nota">nota</button>
+              <div style="display:flex; align-items:center; gap:8px">
+                <input type="checkbox" name="id" value="{{ v.id }}" form="form-nota" style="width:auto; margin:0; flex:0 0 auto">
+                <button type="button" class="btn-sm btn-secundario" style="padding:2px 8px; font-size:11px"
+                        onclick="marcarNota(this)" title="Marcar todas las prendas de esta nota">nota</button>
+              </div>
             </td>
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>
             <td class="col-ancha"><span style="color:var(--texto-tenue); font-size:12px">{{ v.sku }}</span> {{ v.titulo }}</td>
