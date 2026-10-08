@@ -50,6 +50,9 @@ FOTO_ANCHO_MAX = 1000
 # Días sin comprar a partir de los cuales una clienta se marca como "no ha vuelto".
 DIAS_SIN_COMPRAR_ALERTA = 60
 
+# Cuántos días hacia adelante se muestran los cumpleaños próximos en /clientas.
+DIAS_CUMPLE_PROXIMO = 30
+
 # Canales de venta válidos y su nombre bonito para mostrar en pantalla/reportes.
 MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
@@ -1754,13 +1757,13 @@ def ver_clientas(request: Request, error: str | None = None):
     """Lista las clientas con cuánto y cuándo le han comprado (recurrencia)."""
     with engine.connect() as conn:
         filas = conn.execute(text(
-            "SELECT c.id, c.nombre, c.telefono, "
+            "SELECT c.id, c.nombre, c.telefono, c.cumpleanos, "
             "       COUNT(v.id) AS num_compras, "
             "       COALESCE(SUM(v.precio_unitario * v.cantidad), 0) AS total_comprado, "
             "       MAX(v.creada_en) AS ultima_compra "
             "FROM clientas c "
             "LEFT JOIN ventas v ON v.cliente_id = c.id "
-            "GROUP BY c.id, c.nombre, c.telefono "
+            "GROUP BY c.id, c.nombre, c.telefono, c.cumpleanos "
             "ORDER BY c.nombre"
         )).mappings().all()
 
@@ -1798,6 +1801,28 @@ def ver_clientas(request: Request, error: str | None = None):
         key=lambda c: c["dias_sin_comprar"], reverse=True,
     )
 
+    # Cumpleaños de los próximos DIAS_CUMPLE_PROXIMO días (hora de México).
+    # Solo cuentan día y mes: el año guardado puede ser cualquiera.
+    hoy = ahora.date()
+    proximos_cumples = []
+    for c in clientas:
+        if c["cumpleanos"] is None:
+            continue
+        fecha = _proxima_fecha_cumple(c["cumpleanos"], hoy)
+        dias = (fecha - hoy).days
+        if dias > DIAS_CUMPLE_PROXIMO:
+            continue
+        digitos = re.sub(r"\D", "", c["telefono"] or "")
+        if len(digitos) == 10:
+            digitos = "52" + digitos
+        proximos_cumples.append({
+            "id": c["id"], "nombre": c["nombre"], "telefono": c["telefono"],
+            "fecha_texto": f"{fecha.day} de {MESES_ES[fecha.month - 1]}",
+            "dias": dias,
+            "whatsapp": f"https://wa.me/{digitos}" if len(digitos) >= 11 else None,
+        })
+    proximos_cumples.sort(key=lambda c: (c["dias"], c["nombre"]))
+
     # Top clientas por lo que han gastado en total (solo las que sí han comprado algo).
     top_clientas = sorted(
         [c for c in clientas if c["total_comprado"] > 0],
@@ -1809,9 +1834,24 @@ def ver_clientas(request: Request, error: str | None = None):
         "no_han_vuelto": no_han_vuelto,
         "top_clientas": top_clientas,
         "con_saldo": con_saldo,
+        "proximos_cumples": proximos_cumples,
+        "dias_cumple": DIAS_CUMPLE_PROXIMO,
         "dias_alerta": DIAS_SIN_COMPRAR_ALERTA,
         "error": error,
     })
+
+
+def _proxima_fecha_cumple(cumple: date, hoy: date) -> date:
+    """Próxima vez que cae el cumpleaños (hoy cuenta). Un 29 de febrero se
+    festeja el 28 en años no bisiestos."""
+    for anio in (hoy.year, hoy.year + 1):
+        dia = cumple.day
+        if cumple.month == 2 and dia == 29 and not calendar.isleap(anio):
+            dia = 28
+        fecha = date(anio, cumple.month, dia)
+        if fecha >= hoy:
+            return fecha
+    return date(hoy.year + 1, cumple.month, min(cumple.day, 28))
 
 
 @app.post("/clientas")

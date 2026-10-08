@@ -81,6 +81,43 @@
     <div class="tarjeta vacio">Ninguna clienta debe saldo. 👍</div>
   {% endif %}
 
+  {# ---------- Cumpleaños próximos ---------- #}
+  <h2>Cumpleaños próximos (siguientes {{ dias_cumple }} días)</h2>
+  {% if proximos_cumples %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Cumpleaños</th>
+          <th>Faltan</th>
+          <th>Teléfono</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in proximos_cumples %}
+          <tr>
+            <td><a href="/clientas/{{ c.id }}">{{ c.nombre }}</a></td>
+            <td>{{ c.fecha_texto }}</td>
+            <td>
+              {% if c.dias == 0 %}<strong style="color:var(--rosa)">🎂 ¡Hoy!</strong>
+              {% elif c.dias == 1 %}<strong>Mañana</strong>
+              {% else %}{{ c.dias }} días{% endif %}
+            </td>
+            <td>
+              {{ c.telefono or "—" }}
+              {% if c.whatsapp %}
+                &nbsp;<a href="{{ c.whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tarjeta vacio">Ninguna clienta cumple años en los próximos {{ dias_cumple }} días.
+      (Solo salen las que tienen su cumpleaños guardado en su ficha.)</div>
+  {% endif %}
+
   {# ---------- Alerta: clientas que no han vuelto ---------- #}
   <h2>Clientas que no han vuelto ({{ dias_alerta }}+ días)</h2>
   {% if no_han_vuelto %}
