@@ -71,20 +71,31 @@
     {% for nombre in sucursales_mes %}
       <div class="stat">
         <div class="n">${{ "{:,.2f}".format(actual.por_sucursal[nombre]) }}</div>
-        <div class="l">{{ nombre }}</div>
+        <div class="l">{{ nombre }} · brutas</div>
         <div class="l">{{ delta(actual.cambio[nombre]) }} {{ actual.comparado }}</div>
+        <div class="l" style="color:#0b0b0b; font-size:13px; margin-top:8px">
+          <strong>Netas: ${{ "{:,.2f}".format(actual.neta[nombre]) }}</strong>
+          {% if actual.devuelto[nombre] > 0 %}<span style="color:#777">(−${{ "{:,.2f}".format(actual.devuelto[nombre]) }} devuelto)</span>{% endif %}
+        </div>
+        <div class="l">{{ delta(actual.cambio_neta[nombre]) }} {{ actual.comparado }}</div>
       </div>
     {% endfor %}
     <div class="stat destacado">
       <div class="n">${{ "{:,.2f}".format(actual.total) }}</div>
-      <div class="l">Total del mes</div>
+      <div class="l">Total del mes · brutas</div>
       <div class="l">{{ delta(actual.cambio_total) }} {{ actual.comparado }}</div>
+      <div class="l" style="color:#fff; font-size:13px; margin-top:8px">
+        <strong>Netas: ${{ "{:,.2f}".format(actual.neta_total) }}</strong>
+        {% if actual.devuelto_total > 0 %}<span style="color:#ccc">(−${{ "{:,.2f}".format(actual.devuelto_total) }} devuelto)</span>{% endif %}
+      </div>
+      <div class="l">{{ delta(actual.cambio_neta_total) }} {{ actual.comparado }}</div>
     </div>
   </div>
   <p style="font-size:12px; color:#777; margin:6px 0 0">
     Ventas del día 1 al último día del mes, hora de México (CST). Es independiente de las fechas de abajo.
-    Los apartados con saldo pendiente cuentan hasta que se liquidan. El mes en curso se compara contra
-    los mismos días del mes anterior (no contra el mes completo, que todavía no termina).
+    <strong>Brutas</strong> = todo lo vendido; <strong>netas</strong> = brutas menos lo devuelto (devoluciones y cambios
+    registrados ese mes). Los apartados con saldo pendiente cuentan hasta que se liquidan. El mes en curso se compara
+    contra los mismos días del mes anterior (no contra el mes completo, que todavía no termina).
   </p>
 
   {% if meses_ventas|length > 1 %}
@@ -94,14 +105,17 @@
         <thead>
           <tr>
             <th>Mes</th>
+            <th></th>
             {% for nombre in sucursales_mes %}<th>{{ nombre }}</th>{% endfor %}
             <th>Total</th>
           </tr>
         </thead>
         <tbody>
           {% for m in meses_ventas %}
+            {# Dos renglones por mes: ventas brutas y ventas netas (brutas − devuelto) #}
             <tr>
-              <td>{{ m.etiqueta }}{% if m.actual %} <span style="font-size:11px; color:#777">(en curso)</span>{% endif %}</td>
+              <td rowspan="2" style="border-bottom:1px solid var(--borde)">{{ m.etiqueta }}{% if m.actual %}<br><span style="font-size:11px; color:#777">(en curso)</span>{% endif %}</td>
+              <td style="font-size:12px; color:#777">Brutas</td>
               {% for nombre in sucursales_mes %}
                 <td class="num">${{ "{:,.2f}".format(m.por_sucursal[nombre]) }}
                   <div style="font-size:12px">{{ delta(m.cambio[nombre]) }}</div></td>
@@ -109,13 +123,25 @@
               <td class="num"><strong>${{ "{:,.2f}".format(m.total) }}</strong>
                 <div style="font-size:12px">{{ delta(m.cambio_total) }}</div></td>
             </tr>
+            <tr>
+              <td style="font-size:12px; color:#777">Netas</td>
+              {% for nombre in sucursales_mes %}
+                <td class="num">${{ "{:,.2f}".format(m.neta[nombre]) }}
+                  {% if m.devuelto[nombre] > 0 %}<div style="font-size:11px; color:#777">−${{ "{:,.2f}".format(m.devuelto[nombre]) }} devuelto</div>{% endif %}
+                  <div style="font-size:12px">{{ delta(m.cambio_neta[nombre]) }}</div></td>
+              {% endfor %}
+              <td class="num"><strong>${{ "{:,.2f}".format(m.neta_total) }}</strong>
+                {% if m.devuelto_total > 0 %}<div style="font-size:11px; color:#777">−${{ "{:,.2f}".format(m.devuelto_total) }} devuelto</div>{% endif %}
+                <div style="font-size:12px">{{ delta(m.cambio_neta_total) }}</div></td>
+            </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <p style="font-size:12px; color:#777; margin:6px 0 0">
-      El porcentaje compara cada mes contra el mes anterior ("sin base" = el mes anterior no tuvo ventas).
-      El mes en curso se compara contra los mismos días del mes anterior.
+      Netas = brutas menos las devoluciones y cambios registrados en ese mes (cuentan en el mes en que se registró la
+      devolución, no en el de la venta original). El porcentaje compara cada mes contra el mes anterior
+      ("sin base" = el mes anterior no tuvo ventas). El mes en curso se compara contra los mismos días del mes anterior.
     </p>
   {% endif %}
 

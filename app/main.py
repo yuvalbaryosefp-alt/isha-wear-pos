@@ -2547,7 +2547,7 @@ def _pct_cambio(actual: float, previo: float) -> float | None:
     hay base de comparación (el periodo anterior fue 0)."""
     if not previo:
         return None
-    return (actual - previo) / previo * 100
+    return (actual - previo) / abs(previo) * 100
 
 
 def _resumen(row) -> dict:
@@ -2793,6 +2793,37 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
             ), {"ini": prev_ini, "fin": prev_fin}).mappings().all()
         }
 
+        # Lo DEVUELTO (devoluciones y cambios) se resta de las ventas brutas
+        # para dar las ventas NETAS; cuenta en el mes en que se registró la
+        # devolución (no en el de la venta original), con el mismo criterio de
+        # apartados que las ventas brutas.
+        sin_apartado_pendiente = (
+            "  AND (NOT v.apartado OR "
+            "       (SELECT COALESCE(SUM(pg.monto), 0) FROM pagos pg WHERE pg.venta_id = v.id) "
+            "       >= v.precio_unitario * v.cantidad) "
+        )
+        mes_devolucion = "date_trunc('month', d.creado_en AT TIME ZONE 'America/Mexico_City')"
+        devueltas_mes_rows = conn.execute(text(
+            f"SELECT {mes_devolucion}::date AS mes, s.nombre AS sucursal, "
+            "       SUM(v.precio_unitario * v.cantidad) AS devuelto "
+            "FROM devoluciones d JOIN ventas v ON v.id = d.venta_id "
+            "JOIN sucursales s ON s.id = v.sucursal_id "
+            f"WHERE {mes_devolucion} >= date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '12 months' "
+            f"{sin_apartado_pendiente}"
+            "GROUP BY 1, 2"
+        )).mappings().all()
+        prev_devuelto_mismo_periodo = {
+            r["sucursal"]: float(r["devuelto"] or 0)
+            for r in conn.execute(text(
+                "SELECT s.nombre AS sucursal, SUM(v.precio_unitario * v.cantidad) AS devuelto "
+                "FROM devoluciones d JOIN ventas v ON v.id = d.venta_id "
+                "JOIN sucursales s ON s.id = v.sucursal_id "
+                "WHERE (d.creado_en AT TIME ZONE 'America/Mexico_City')::date BETWEEN :ini AND :fin "
+                f"{sin_apartado_pendiente}"
+                "GROUP BY 1"
+            ), {"ini": prev_ini, "fin": prev_fin}).mappings().all()
+        }
+
         # Top 10 productos por ganancia bruta, en el mismo período filtrado.
         top_productos = conn.execute(text(
             f"SELECT p.id, p.sku, p.titulo, {_METRICAS} "
@@ -2826,30 +2857,49 @@ def reportes(request: Request, desde: str | None = None, hasta: str | None = Non
     for r in ventas_mes_rows:
         ventas_por_mes.setdefault((r["mes"].year, r["mes"].month), {})[r["sucursal"]] = float(r["ventas"] or 0)
 
+    devuelto_por_mes: dict[tuple, dict] = {}
+    for r in devueltas_mes_rows:
+        devuelto_por_mes.setdefault((r["mes"].year, r["mes"].month), {})[r["sucursal"]] = float(r["devuelto"] or 0)
+
     meses_ventas = []
     anio, mes = hoy.year, hoy.month
     for i in range(12):
         por_suc = ventas_por_mes.get((anio, mes), {})
+        dev_suc = devuelto_por_mes.get((anio, mes), {})
         total_mes = sum(por_suc.values())
-        if i == 0 or total_mes > 0:
+        total_dev = sum(dev_suc.values())
+        # Un mes sin ventas pero con devoluciones también se muestra (la neta saldría negativa).
+        if i == 0 or total_mes > 0 or total_dev > 0:
             ultimo_dia = calendar.monthrange(anio, mes)[1]
             ant_anio, ant_mes = (anio, mes - 1) if mes > 1 else (anio - 1, 12)
             if i == 0:
                 previo = prev_mismo_periodo
+                previo_dev = prev_devuelto_mismo_periodo
                 comparado = f"vs. 1 al {prev_fin.day} de {MESES_ES[prev_mes - 1]}"
             else:
                 previo = ventas_por_mes.get((ant_anio, ant_mes), {})
+                previo_dev = devuelto_por_mes.get((ant_anio, ant_mes), {})
                 comparado = f"vs. {MESES_ES[ant_mes - 1]}"
+            neta_suc = {n: por_suc.get(n, 0.0) - dev_suc.get(n, 0.0) for n in sucursales_mes}
+            previo_neta = {n: previo.get(n, 0.0) - previo_dev.get(n, 0.0) for n in sucursales_mes}
+            total_neta = total_mes - total_dev
             meses_ventas.append({
                 "etiqueta": f"{MESES_ES[mes - 1].capitalize()} {anio}",
                 "rango": f"1 al {ultimo_dia} de {MESES_ES[mes - 1]}",
                 "por_sucursal": {nombre: por_suc.get(nombre, 0.0) for nombre in sucursales_mes},
                 "total": total_mes,
+                "devuelto": {nombre: dev_suc.get(nombre, 0.0) for nombre in sucursales_mes},
+                "devuelto_total": total_dev,
+                "neta": neta_suc,
+                "neta_total": total_neta,
                 "actual": i == 0,
                 "comparado": comparado,
                 "cambio": {nombre: _pct_cambio(por_suc.get(nombre, 0.0), previo.get(nombre, 0.0))
                            for nombre in sucursales_mes},
                 "cambio_total": _pct_cambio(total_mes, sum(previo.values())),
+                "cambio_neta": {nombre: _pct_cambio(neta_suc[nombre], previo_neta[nombre])
+                                for nombre in sucursales_mes},
+                "cambio_neta_total": _pct_cambio(total_neta, sum(previo_neta.values())),
             })
         mes -= 1
         if mes == 0:
