@@ -897,7 +897,7 @@ def ver_ventas(
     })
 
 
-@app.post("/ventas/{venta_id}/pagos")
+@app.post("/ventas/{venta_id}/pagos", dependencies=[Depends(requiere_admin)])
 def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...)):
     """Registra un abono adicional a una venta que ya existe (para saldar el pendiente)."""
     metodo = metodo.strip()

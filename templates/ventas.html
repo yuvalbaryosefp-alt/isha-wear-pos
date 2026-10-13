@@ -340,12 +340,16 @@
           <th>Clienta</th>
           <th>Vendedora</th>
           <th>Cant.</th>
-          <th>Total</th>
-          <th>Pagado</th>
-          <th>Saldo</th>
-          <th>Estado</th>
-          <th>Métodos</th>
-          <th>Abonar</th>
+          {# Los montos (total/pagado/saldo/estado/métodos/abonar) solo los ve la admin;
+             una vendedora solo ve QUÉ vendió, no cuánto. #}
+          {% if identidad.rol == "admin" %}
+            <th>Total</th>
+            <th>Pagado</th>
+            <th>Saldo</th>
+            <th>Estado</th>
+            <th>Métodos</th>
+            <th>Abonar</th>
+          {% endif %}
           <th>Devolución/Cambio</th>
           <th></th>
         </tr>
@@ -367,12 +371,13 @@
             <td>{{ v.clienta or "—" }}</td>
             <td>{{ v.vendedora or "—" }}</td>
             <td class="num">{{ v.cantidad }}</td>
+            {% if identidad.rol == "admin" %}
             <td class="num">${{ "%.2f"|format(v.total) }}</td>
             <td class="num">${{ "%.2f"|format(v.pagado) }}</td>
             <td class="num">${{ "%.2f"|format(v.saldo) }}</td>
             <td>
               <span class="badge {{ v.estado|lower }}">{{ v.estado }}</span>
-              {% if v.saldo > 0 and identidad.rol == "admin" %}
+              {% if v.saldo > 0 %}
                 <form method="post" action="/ventas/{{ v.id }}/apartado" style="margin-top:4px">
                   <input type="hidden" name="valor" value="{{ 'false' if v.apartado else 'true' }}">
                   <button type="submit" class="btn-sm btn-secundario" style="padding:3px 10px; font-size:11px">
@@ -397,6 +402,7 @@
                 —
               {% endif %}
             </td>
+            {% endif %}
             <td>
               {% if v.devolucion_tipo %}
                 <span class="badge" style="background:var(--ambar-suave); color:var(--ambar)">
