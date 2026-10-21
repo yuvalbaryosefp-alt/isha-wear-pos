@@ -449,9 +449,9 @@
               {% endif %}
             </td>
             <td>
-              {% if not v.devolucion_tipo and identidad.rol == "admin" %}
+              {% if identidad.rol == "admin" %}
                 <form method="post" action="/ventas/{{ v.id }}/eliminar"
-                      onsubmit="return confirm('¿Eliminar esta venta de {{ v.titulo|e }}? Se repone el stock. Esta acción no se puede deshacer.');">
+                      onsubmit="return confirm('¿Eliminar esta venta de {{ v.titulo|e }}? {{ 'Ya estaba devuelta, así que no se vuelve a sumar stock.' if v.devolucion_tipo else 'Se repone el stock.' }} Esta acción no se puede deshacer.');">
                   <button type="submit" class="btn-sm btn-peligro">
                     Eliminar
                   </button>

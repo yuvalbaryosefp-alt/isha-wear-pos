@@ -953,43 +953,32 @@ def marcar_apartado(venta_id: int, valor: bool = Form(...)):
     return RedirectResponse("/ventas", status_code=303)
 
 
-@app.post("/ventas/{venta_id}/eliminar", dependencies=[Depends(requiere_admin)])
-def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
-    """Elimina una venta (ej. una de prueba) y repone el stock que se había
-    descontado, para que el inventario no quede descuadrado.
+def eliminar_venta_en_conn(conn, venta_id: int):
+    """Borra UNA venta dentro de la transacción dada. Si todavía no se había
+    devuelto, repone el stock y deja un movimiento de ajuste; si YA estaba
+    registrada como devolución/cambio, el stock ya se repuso por ese camino,
+    así que solo se borra (sumarlo otra vez lo duplicaría). Sus pagos y su
+    registro de devolución se eliminan solos (ON DELETE CASCADE).
+    Devuelve (producto_id, ya_devuelta), o None si la venta no existe."""
+    venta = conn.execute(text(
+        "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
+    ), {"id": venta_id}).mappings().one_or_none()
+    if venta is None:
+        return None
 
-    No se intenta borrar el movimiento 'venta' original (la tabla movimientos
-    no guarda a qué venta pertenece cada renglón, así que no hay forma
-    confiable de identificar cuál es exactamente). En su lugar se registra un
-    movimiento nuevo tipo 'ajuste' que repone la cantidad, dejando rastro
-    claro en el historial de que la venta se canceló.
-    """
-    with engine.begin() as conn:
-        venta = conn.execute(text(
-            "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
-        ), {"id": venta_id}).mappings().one_or_none()
+    ya_devuelta = bool(conn.execute(text(
+        "SELECT 1 FROM devoluciones WHERE venta_id = :id"
+    ), {"id": venta_id}).scalar())
 
-        if venta is None:
-            return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
-
-        # Si ya se registró como devolución/cambio, el stock ya se repuso por
-        # ese camino — eliminarla también volvería a sumarlo por duplicado.
-        ya_devuelta = conn.execute(text(
-            "SELECT 1 FROM devoluciones WHERE venta_id = :id"
-        ), {"id": venta_id}).scalar()
-        if ya_devuelta:
-            return RedirectResponse(
-                "/ventas?error=Esta venta ya se registró como devolución/cambio; no se puede eliminar aparte.",
-                status_code=303,
-            )
-
-        # Repone el stock que se había descontado al vender.
+    if not ya_devuelta:
         conn.execute(text(
             "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
             "WHERE producto_id = :p AND sucursal_id = :s"
         ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
 
-        # Deja rastro de la cancelación en el historial de movimientos.
+        # No se borra el movimiento 'venta' original (movimientos no guarda a
+        # qué venta pertenece cada renglón); se registra uno nuevo tipo
+        # 'ajuste' que repone la cantidad y deja rastro de la cancelación.
         conn.execute(text(
             "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
             "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
@@ -998,10 +987,21 @@ def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
             "delta": venta["cantidad"], "motivo": f"venta #{venta_id} eliminada (stock repuesto)",
         })
 
-        # Borra la venta; sus pagos se eliminan solos (ON DELETE CASCADE).
-        conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
+    conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
+    return venta["producto_id"], ya_devuelta
 
-    background_tasks.add_task(empujar_stock_producto_seguro, venta["producto_id"])
+
+@app.post("/ventas/{venta_id}/eliminar", dependencies=[Depends(requiere_admin)])
+def eliminar_venta(venta_id: int, background_tasks: BackgroundTasks):
+    """Elimina una venta (ej. una de prueba o una ya devuelta). Ver
+    eliminar_venta_en_conn para el manejo del stock."""
+    with engine.begin() as conn:
+        resultado = eliminar_venta_en_conn(conn, venta_id)
+
+    if resultado is None:
+        return RedirectResponse("/ventas?error=Venta no encontrada.", status_code=303)
+
+    background_tasks.add_task(empujar_stock_producto_seguro, resultado[0])
     return RedirectResponse("/ventas", status_code=303)
 
 
@@ -1012,54 +1012,29 @@ def eliminar_ventas_varias(
     siguiente: str = Form("/ventas"),  # a dónde regresar: la lista de ventas o la ficha de una clienta
 ):
     """Elimina varias ventas marcadas de un jalón (ej. limpiar varias de
-    prueba a la vez, o una nota completa), en vez de una por una. Misma
-    lógica que eliminar_venta para cada una: repone el stock, deja un
-    movimiento de ajuste, y se salta (sin tronar) las que ya se registraron
-    como devolución/cambio."""
+    prueba a la vez, o una nota completa, incluso si ya estaban devueltas),
+    en vez de una por una. Misma lógica que eliminar_venta para cada una."""
     if not (siguiente == "/ventas" or re.fullmatch(r"/clientas/\d+", siguiente)):
         siguiente = "/ventas"
     eliminadas = 0
-    saltadas = 0
+    ya_devueltas = 0
     productos_tocados: set[int] = set()
 
     with engine.begin() as conn:
         for venta_id in id:
-            venta = conn.execute(text(
-                "SELECT producto_id, sucursal_id, cantidad FROM ventas WHERE id = :id"
-            ), {"id": venta_id}).mappings().one_or_none()
-            if venta is None:
+            resultado = eliminar_venta_en_conn(conn, venta_id)
+            if resultado is None:
                 continue
-
-            ya_devuelta = conn.execute(text(
-                "SELECT 1 FROM devoluciones WHERE venta_id = :id"
-            ), {"id": venta_id}).scalar()
-            if ya_devuelta:
-                saltadas += 1
-                continue
-
-            conn.execute(text(
-                "UPDATE stock SET cantidad = cantidad + :c, actualizado_en = NOW() "
-                "WHERE producto_id = :p AND sucursal_id = :s"
-            ), {"c": venta["cantidad"], "p": venta["producto_id"], "s": venta["sucursal_id"]})
-
-            conn.execute(text(
-                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) "
-                "VALUES (:p, :s, 'ajuste', :delta, :motivo)"
-            ), {
-                "p": venta["producto_id"], "s": venta["sucursal_id"],
-                "delta": venta["cantidad"], "motivo": f"venta #{venta_id} eliminada (stock repuesto)",
-            })
-
-            conn.execute(text("DELETE FROM ventas WHERE id = :id"), {"id": venta_id})
-            productos_tocados.add(venta["producto_id"])
+            productos_tocados.add(resultado[0])
             eliminadas += 1
+            ya_devueltas += 1 if resultado[1] else 0
 
     if productos_tocados:
         background_tasks.add_task(empujar_stock_productos_seguro, list(productos_tocados))
 
     mensaje = f"Se eliminaron {eliminadas} venta(s)."
-    if saltadas:
-        mensaje += f" {saltadas} no se pudieron eliminar (ya son devolución/cambio)."
+    if ya_devueltas:
+        mensaje += f" {ya_devueltas} ya estaban devueltas, así que su stock no se volvió a sumar."
     return RedirectResponse(f"{siguiente}?ok={mensaje}", status_code=303)
 
 
