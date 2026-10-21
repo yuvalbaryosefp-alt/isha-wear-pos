@@ -1063,6 +1063,44 @@ def eliminar_ventas_varias(
     return RedirectResponse(f"{siguiente}?ok={mensaje}", status_code=303)
 
 
+@app.post("/ventas/asignar-clienta", dependencies=[Depends(requiere_admin)])
+def asignar_clienta_a_ventas(
+    id: list[int] = Form(...),
+    cliente_id: str = Form(""),
+    nueva_clienta: str = Form(""),
+):
+    """Le pone dueña (clienta) a ventas que se registraron sin ella. Se aplica
+    a la NOTA COMPLETA de cada venta marcada (todas las prendas del mismo
+    pedido), para que la nota no quede partida entre con y sin clienta.
+    Se puede elegir una clienta existente o escribir el nombre de una nueva."""
+    nombre_nueva = nueva_clienta.strip()
+    if not nombre_nueva and not cliente_id.strip():
+        return RedirectResponse("/ventas?error=Elige una clienta o escribe el nombre de una nueva.", status_code=303)
+
+    ids_stmt = lambda sql: text(sql).bindparams(bindparam("ids", expanding=True))
+    with engine.begin() as conn:
+        if nombre_nueva:
+            cliente_destino = conn.execute(text(
+                "INSERT INTO clientas (nombre) VALUES (:n) RETURNING id"
+            ), {"n": nombre_nueva}).scalar_one()
+        else:
+            cliente_destino = int(cliente_id)
+            existe = conn.execute(text("SELECT 1 FROM clientas WHERE id = :c"), {"c": cliente_destino}).scalar()
+            if not existe:
+                return RedirectResponse("/ventas?error=Clienta no encontrada.", status_code=303)
+
+        actualizadas = conn.execute(ids_stmt(
+            "UPDATE ventas SET cliente_id = :c "
+            "WHERE COALESCE(pedido_id, 'v' || id::text) IN ("
+            "    SELECT DISTINCT COALESCE(pedido_id, 'v' || id::text) FROM ventas WHERE id IN :ids)"
+        ), {"c": cliente_destino, "ids": id}).rowcount
+
+    return RedirectResponse(
+        f"/clientas/{cliente_destino}?ok=Se asignó la clienta a {actualizadas} prenda(s); ya aparecen en su ficha.",
+        status_code=303,
+    )
+
+
 @app.post("/ventas/{venta_id}/devolucion", dependencies=[Depends(requiere_admin)])
 def registrar_devolucion(
     venta_id: int,

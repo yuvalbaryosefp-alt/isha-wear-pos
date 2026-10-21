@@ -318,6 +318,30 @@
     El botón "nota" de cada fila marca de una vez todas las prendas de esa misma nota.
   </p>
 
+  {% if identidad.rol == "admin" %}
+    {# Ponerle dueña a una nota que se registró sin clienta (se aplica a la nota completa). #}
+    <div class="tarjeta" style="padding:14px 16px; margin-bottom:12px">
+      <strong style="font-size:13px">Asignar clienta a las ventas marcadas</strong>
+      <span style="font-size:12px; color:#777"> (se aplica a la nota completa de cada una)</span>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px">
+        <select form="form-nota" name="cliente_id" style="width:auto; min-width:200px; padding:6px 10px; font-size:13px">
+          <option value="">— Elige una clienta —</option>
+          {% for c in clientas %}
+            <option value="{{ c.id }}">{{ c.nombre }}</option>
+          {% endfor %}
+        </select>
+        <span style="font-size:12px; color:#777">o clienta nueva:</span>
+        <input type="text" form="form-nota" name="nueva_clienta" placeholder="Nombre" autocomplete="off"
+               style="width:170px; padding:6px 10px; font-size:13px">
+        <button type="submit" form="form-nota" formaction="/ventas/asignar-clienta" formmethod="post"
+                class="btn-sm" style="background:var(--rosa); color:#fff"
+                onclick="return confirm('¿Asignar esta clienta a las ventas marcadas? Se aplica a la nota completa de cada una.');">
+          Asignar clienta
+        </button>
+      </div>
+    </div>
+  {% endif %}
+
   {# Form "vacío": las casillas y el botón de arriba se asocian a él vía el atributo form="form-nota",
      así evitamos anidar un <form> dentro de los formularios de "Abonar" de cada fila (HTML no lo permite). #}
   <form id="form-nota" method="get" action="/ventas/nota"></form>
