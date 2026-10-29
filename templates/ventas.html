@@ -386,6 +386,10 @@
                 <input type="checkbox" name="id" value="{{ v.id }}" form="form-nota" style="width:auto; margin:0; flex:0 0 auto">
                 <button type="button" class="btn-sm btn-secundario" style="padding:2px 8px; font-size:11px"
                         onclick="marcarNota(this)" title="Marcar todas las prendas de esta nota">nota</button>
+                {% if identidad.rol == "admin" %}
+                  <a href="/notas/editar?id={{ v.id }}" title="Editar esta nota (quitar/agregar prendas, cambiar precios)"
+                     style="text-decoration:none; font-size:15px">✏️</a>
+                {% endif %}
               </div>
             </td>
             <td>{{ v.creada_en.strftime("%d/%m/%Y %H:%M") }}</td>

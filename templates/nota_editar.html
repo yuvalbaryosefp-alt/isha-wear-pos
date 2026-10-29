@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+
+  {% if error %}
+    <div class="aviso">{{ error }}</div>
+  {% endif %}
+
+  <p>
+    {% if cliente_id %}<a href="/clientas/{{ cliente_id }}">&larr; Volver a la ficha de {{ clienta }}</a>
+    {% else %}<a href="/ventas">&larr; Volver a Ventas</a>{% endif %}
+  </p>
+
+  <h2>
+    Editar
+    {% if liquidada %}ticket{% if numero_ticket %} #{{ numero_ticket }}{% endif %}
+    {% else %}nota{% if numero_nota %} #{{ numero_nota }}{% endif %}{% endif %}
+    · {{ sucursal }}
+  </h2>
+  <p class="nota" style="margin-top:-8px">
+    {{ fecha.strftime("%d/%m/%Y %H:%M") }}{% if clienta %} · Clienta: <strong>{{ clienta }}</strong>{% else %} · Sin clienta{% endif %}
+  </p>
+
+  <form method="post" action="/notas/editar" id="form-editar">
+    <input type="hidden" name="venta_ref" value="{{ venta_ref }}">
+
+    <h2 style="margin-top:6px">Prendas de la nota</h2>
+    <div class="tabla-scroll">
+      <table id="tabla-lineas">
+        <thead>
+          <tr>
+            <th>Quitar</th>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Precio unit.</th>
+            <th>Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in lineas %}
+            {% if l.devolucion_tipo %}
+              <tr data-fija="1" data-subtotal="{{ l.precio * l.cantidad }}" style="opacity:.55">
+                <td>—</td>
+                <td class="col-ancha">
+                  <span style="color:var(--texto-tenue); font-size:12px">{{ l.sku }}</span> {{ l.titulo }}
+                  <span class="badge" style="background:var(--ambar-suave); color:var(--ambar)">
+                    {{ "Devuelta" if l.devolucion_tipo == "devolucion" else "Cambio" }} · no editable
+                  </span>
+                </td>
+                <td class="num">{{ l.cantidad }}</td>
+                <td class="num">${{ "%.2f"|format(l.precio) }}</td>
+                <td class="num">${{ "%.2f"|format(l.precio * l.cantidad) }}</td>
+              </tr>
+            {% else %}
+              <tr data-linea="{{ l.id }}">
+                <td>
+                  <input type="hidden" name="linea_id" value="{{ l.id }}">
+                  <input type="checkbox" name="quitar" value="{{ l.id }}" class="chk-quitar" style="width:auto"
+                         title="Quitar esta prenda de la nota (se repone su stock)">
+                </td>
+                <td class="col-ancha"><span style="color:var(--texto-tenue); font-size:12px">{{ l.sku }}</span> {{ l.titulo }}</td>
+                <td><input type="number" name="cantidad" min="1" value="{{ l.cantidad }}" class="inp-cant" style="width:80px"></td>
+                <td><input type="text" name="precio" value="{{ l.precio }}" class="inp-precio" inputmode="numeric" style="width:100px"></td>
+                <td class="num subtotal">${{ "%.2f"|format(l.precio * l.cantidad) }}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="nota">
+      Cambia la cantidad o el precio directo en la casilla. Marca "Quitar" para sacar una prenda de la nota
+      (su stock regresa al inventario). Las prendas ya devueltas no se pueden editar aquí.
+    </p>
+
+    <h2>Agregar prendas</h2>
+    <div class="tabla-scroll">
+      <table>
+        <thead>
+          <tr><th>SKU o nombre</th><th>Tipo de precio</th><th>Cantidad</th><th>Precio unit.</th><th>Subtotal</th><th></th></tr>
+        </thead>
+        <tbody id="filas-nuevas"></tbody>
+      </table>
+    </div>
+    <button type="button" class="btn-sm btn-secundario" style="margin-top:10px" onclick="agregarFila()">+ Agregar prenda</button>
+    <datalist id="datalist-productos"></datalist>
+
+    <div class="stats" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:22px">
+      <div class="tarjeta" style="flex:1; min-width:150px; padding:14px 18px">
+        <div style="font-size:22px; font-weight:700" id="t-total">$0.00</div>
+        <div style="font-size:12px; color:#777">Total de la nota</div>
+      </div>
+      <div class="tarjeta" style="flex:1; min-width:150px; padding:14px 18px">
+        <div style="font-size:22px; font-weight:700">${{ "{:,.2f}".format(pagado) }}</div>
+        <div style="font-size:12px; color:#777">Ya pagado (se conserva)</div>
+      </div>
+      <div class="tarjeta" style="flex:1; min-width:150px; padding:14px 18px">
+        <div style="font-size:22px; font-weight:700" id="t-saldo">$0.00</div>
+        <div style="font-size:12px; color:#777" id="t-saldo-etq">Saldo</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center; margin-top:6px">
+      <button type="submit">Guardar cambios</button>
+      {% if cliente_id %}<a href="/clientas/{{ cliente_id }}">Cancelar</a>{% else %}<a href="/ventas">Cancelar</a>{% endif %}
+    </div>
+  </form>
+
+  <script>
+    var PRODUCTOS = {{ productos_json|safe }};
+    var SUCURSAL_ID = "{{ sucursal_id }}";
+    var PAGADO = {{ pagado }};
+    var PRODUCTOS_POR_SKU = {};
+    var PRODUCTOS_POR_ID = {};
+    PRODUCTOS.forEach(function (p) { PRODUCTOS_POR_SKU[String(p.sku).toUpperCase()] = p; PRODUCTOS_POR_ID[p.id] = p; });
+
+    var dl = document.getElementById('datalist-productos');
+    PRODUCTOS.forEach(function (p) {
+      var o = document.createElement('option');
+      o.value = p.sku; o.label = p.texto; dl.appendChild(o);
+    });
+
+    function buscarProducto(texto) {
+      texto = texto.trim();
+      if (!texto) return null;
+      var directo = PRODUCTOS_POR_SKU[texto.toUpperCase()];
+      if (directo) return directo;
+      var mayus = texto.toUpperCase();
+      var coinc = PRODUCTOS.filter(function (p) { return p.texto.toUpperCase().indexOf(mayus) !== -1; });
+      return coinc.length === 1 ? coinc[0] : null;
+    }
+
+    function dinero(n) {
+      return '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function recalcular() {
+      var total = 0;
+      document.querySelectorAll('#tabla-lineas tbody tr').forEach(function (tr) {
+        if (tr.dataset.fija) { total += parseFloat(tr.dataset.subtotal) || 0; return; }
+        var quitada = tr.querySelector('.chk-quitar').checked;
+        var cant = parseInt(tr.querySelector('.inp-cant').value, 10);
+        var precio = parseFloat(tr.querySelector('.inp-precio').value);
+        var sub = (isNaN(cant) || isNaN(precio)) ? 0 : cant * precio;
+        tr.querySelector('.subtotal').textContent = dinero(sub);
+        tr.style.opacity = quitada ? '.4' : '';
+        tr.querySelector('.subtotal').style.textDecoration = quitada ? 'line-through' : '';
+        if (!quitada) total += sub;
+      });
+      document.querySelectorAll('#filas-nuevas tr').forEach(function (tr) {
+        var cant = parseInt(tr.querySelector('.n-cant').value, 10);
+        var precio = parseFloat(tr.querySelector('.n-precio').value);
+        var sub = (isNaN(cant) || isNaN(precio) || !tr.querySelector('.n-id').value) ? 0 : cant * precio;
+        tr.querySelector('.subtotal').textContent = dinero(sub);
+        total += sub;
+      });
+      var saldo = total - PAGADO;
+      document.getElementById('t-total').textContent = dinero(total);
+      var s = document.getElementById('t-saldo'), e = document.getElementById('t-saldo-etq');
+      if (saldo > 0.004) { s.textContent = dinero(saldo); s.style.color = '#B02A2A'; e.textContent = 'Saldo pendiente'; }
+      else if (saldo < -0.004) { s.textContent = dinero(-saldo); s.style.color = '#b26a00'; e.textContent = 'Pagado de más (hay que devolverlo)'; }
+      else { s.textContent = dinero(0); s.style.color = ''; e.textContent = 'Liquidada'; }
+    }
+
+    function agregarFila() {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><input type="text" class="n-sku" list="datalist-productos" autocomplete="off" placeholder="SKU o nombre" style="width:170px">' +
+          '<input type="hidden" name="nuevo_producto_id" class="n-id">' +
+          '<div class="n-msg" style="font-size:11px; color:#B02A2A"></div></td>' +
+        '<td><select name="nuevo_tipo" class="n-tipo" style="width:auto"><option value="menudeo">Menudeo</option><option value="mayoreo">Mayoreo</option></select></td>' +
+        '<td><input type="number" name="nuevo_cantidad" min="1" value="1" class="n-cant" style="width:80px"></td>' +
+        '<td><input type="text" name="nuevo_precio" class="n-precio" inputmode="numeric" style="width:100px"></td>' +
+        '<td class="num subtotal">$0.00</td>' +
+        '<td><button type="button" class="btn-sm btn-peligro" style="margin:0" onclick="this.closest(\'tr\').remove(); recalcular();">✕</button></td>';
+      document.getElementById('filas-nuevas').appendChild(tr);
+
+      var sku = tr.querySelector('.n-sku'), id = tr.querySelector('.n-id'), tipo = tr.querySelector('.n-tipo');
+      var precio = tr.querySelector('.n-precio'), msg = tr.querySelector('.n-msg'), cant = tr.querySelector('.n-cant');
+      function resolver() {
+        var p = buscarProducto(sku.value);
+        if (!sku.value.trim()) { id.value = ''; msg.textContent = ''; recalcular(); return; }
+        if (!p) { id.value = ''; msg.textContent = 'No encontrado.'; recalcular(); return; }
+        id.value = p.id;
+        var v = tipo.value === 'mayoreo' ? p.precioMayoreo : p.precio;
+        if (v !== null && v !== undefined) precio.value = Math.round(parseFloat(v));
+        var hay = (p.stock && p.stock[SUCURSAL_ID]) || 0;
+        msg.style.color = '#777'; msg.textContent = 'Hay ' + hay + ' en esta sucursal.';
+        recalcular();
+      }
+      sku.addEventListener('input', resolver);
+      sku.addEventListener('change', resolver);
+      tipo.addEventListener('change', resolver);
+      [cant, precio].forEach(function (el) { el.addEventListener('input', recalcular); });
+      sku.focus();
+    }
+
+    document.querySelectorAll('.chk-quitar, .inp-cant, .inp-precio').forEach(function (el) {
+      el.addEventListener('input', recalcular);
+      el.addEventListener('change', recalcular);
+    });
+
+    // Enter no guarda la nota por accidente: solo el botón "Guardar cambios".
+    document.getElementById('form-editar').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') e.preventDefault();
+    });
+
+    document.getElementById('form-editar').addEventListener('submit', function (e) {
+      var mal = false;
+      document.querySelectorAll('#filas-nuevas tr').forEach(function (tr) {
+        if (tr.querySelector('.n-sku').value.trim() && !tr.querySelector('.n-id').value) mal = true;
+      });
+      if (mal) { e.preventDefault(); alert('Hay una prenda nueva sin SKU válido. Corrígela o quítala con ✕.'); return; }
+      if (!confirm('¿Guardar los cambios de esta nota? El stock y los pagos se ajustan automáticamente.')) e.preventDefault();
+    });
+
+    recalcular();
+  </script>
+
+{% endblock %}

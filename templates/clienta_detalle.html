@@ -129,12 +129,16 @@
               {{ n.fecha.strftime("%d/%m/%Y %H:%M") }}
             </div>
           </div>
-          <form method="get" action="/ventas/nota">
-            {% for vid in n.venta_ids %}
-              <input type="hidden" name="id" value="{{ vid }}">
-            {% endfor %}
-            <button type="submit" class="btn-sm">🖨️ Imprimir esta nota</button>
-          </form>
+          <div style="display:flex; gap:8px; align-items:center">
+            <a href="/notas/editar?id={{ n.venta_ids[0] }}" class="btn-sm btn-secundario"
+               style="display:inline-block; text-decoration:none; padding:6px 13px; font-size:12.5px; border-radius:7px; font-weight:600">✏️ Editar nota</a>
+            <form method="get" action="/ventas/nota">
+              {% for vid in n.venta_ids %}
+                <input type="hidden" name="id" value="{{ vid }}">
+              {% endfor %}
+              <button type="submit" class="btn-sm">🖨️ Imprimir esta nota</button>
+            </form>
+          </div>
         </div>
 
         <div class="tabla-scroll">

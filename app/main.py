@@ -1076,6 +1076,278 @@ def asignar_clienta_a_ventas(
     )
 
 
+def _lineas_de_nota(conn, venta_id: int):
+    """Todas las líneas (prendas) de la nota a la que pertenece `venta_id`
+    (mismo pedido), con lo necesario para editarlas."""
+    clave = conn.execute(text(
+        "SELECT COALESCE(pedido_id, 'v' || id::text) FROM ventas WHERE id = :i"
+    ), {"i": venta_id}).scalar()
+    if clave is None:
+        return []
+    return conn.execute(text(
+        "SELECT v.id, v.producto_id, v.sucursal_id, v.cantidad, v.precio_unitario, v.descuento_pct, "
+        "       v.tipo_precio, v.canal, v.cliente_id, v.vendedora_id, v.pedido_id, v.numero_nota, "
+        "       v.numero_ticket, v.apartado, v.creada_en, p.sku, p.titulo, d.tipo AS devolucion_tipo "
+        "FROM ventas v JOIN productos p ON p.id = v.producto_id "
+        "LEFT JOIN devoluciones d ON d.venta_id = v.id "
+        "WHERE COALESCE(v.pedido_id, 'v' || v.id::text) = :c ORDER BY v.id"
+    ), {"c": clave}).mappings().all()
+
+
+@app.get("/notas/editar", dependencies=[Depends(requiere_admin)])
+def editar_nota_form(request: Request, id: int, error: str | None = None, identidad: Identidad = Depends(requiere_login)):
+    """Pantalla para editar una nota ya hecha: quitar prendas, cambiar
+    cantidades o precios, y agregar prendas nuevas."""
+    with engine.connect() as conn:
+        lineas = _lineas_de_nota(conn, id)
+        if not lineas:
+            return RedirectResponse("/ventas?error=Nota no encontrada.", status_code=303)
+        base = lineas[0]
+        ids = [l["id"] for l in lineas]
+        pagado = float(conn.execute(text(
+            "SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE venta_id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True)), {"ids": ids}).scalar())
+        sucursal = conn.execute(text("SELECT nombre FROM sucursales WHERE id = :s"), {"s": base["sucursal_id"]}).scalar()
+        clienta = conn.execute(text("SELECT nombre FROM clientas WHERE id = :c"), {"c": base["cliente_id"]}).scalar() if base["cliente_id"] else None
+        productos = conn.execute(text(
+            "SELECT id, sku, titulo, precio, precio_mayoreo FROM productos WHERE activo = TRUE ORDER BY titulo"
+        )).mappings().all()
+        stock_por_producto = obtener_stock_por_producto(conn)
+
+    total = sum(float(l["precio_unitario"]) * l["cantidad"] for l in lineas)
+    saldo = round(total - pagado, 2)
+    return templates.TemplateResponse(request, "nota_editar.html", {
+        "venta_ref": id,
+        "lineas": [{
+            "id": l["id"], "sku": l["sku"], "titulo": l["titulo"], "cantidad": l["cantidad"],
+            "precio": round(float(l["precio_unitario"])), "devolucion_tipo": l["devolucion_tipo"],
+            "producto_id": l["producto_id"],
+        } for l in lineas],
+        "numero_nota": base["numero_nota"], "numero_ticket": base["numero_ticket"],
+        "liquidada": saldo <= 0,
+        "sucursal": sucursal, "sucursal_id": base["sucursal_id"], "clienta": clienta, "cliente_id": base["cliente_id"],
+        "fecha": base["creada_en"].astimezone(ZONA_CDMX),
+        "pagado": pagado, "total": total,
+        "productos_json": productos_a_json(productos, stock_por_producto),
+        "error": error, "identidad": identidad,
+    })
+
+
+@app.post("/notas/editar", dependencies=[Depends(requiere_admin)])
+def guardar_edicion_nota(
+    background_tasks: BackgroundTasks,
+    venta_ref: int = Form(...),
+    linea_id: list[int] = Form(default=[]),
+    cantidad: list[str] = Form(default=[]),
+    precio: list[str] = Form(default=[]),
+    quitar: list[int] = Form(default=[]),
+    nuevo_producto_id: list[str] = Form(default=[]),
+    nuevo_tipo: list[str] = Form(default=[]),
+    nuevo_cantidad: list[str] = Form(default=[]),
+    nuevo_precio: list[str] = Form(default=[]),
+):
+    """Guarda los cambios de una nota: quita prendas (repone su stock),
+    cambia cantidades y precios (ajusta el stock por la diferencia) y agrega
+    prendas nuevas (descuenta stock). Todo o nada: si algo falla no se
+    guarda nada. Los pagos ya registrados se conservan y se reacomodan
+    entre las prendas que quedan; la nota conserva su folio."""
+    def volver(msg):
+        return RedirectResponse(f"/notas/editar?id={venta_ref}&error={msg}", status_code=303)
+
+    if not (len(linea_id) == len(cantidad) == len(precio)):
+        return volver("Datos incompletos, intenta de nuevo.")
+    n_nuevas = len(nuevo_producto_id)
+    if not (len(nuevo_tipo) == len(nuevo_cantidad) == len(nuevo_precio) == n_nuevas):
+        return volver("Datos incompletos en las prendas nuevas.")
+
+    with engine.begin() as conn:
+        lineas = _lineas_de_nota(conn, venta_ref)
+        if not lineas:
+            return RedirectResponse("/ventas?error=Nota no encontrada.", status_code=303)
+        por_id = {l["id"]: l for l in lineas}
+        base = lineas[0]
+        sucursal_id = base["sucursal_id"]
+        editables = {l["id"] for l in lineas if not l["devolucion_tipo"]}
+        quitar_set = {q for q in quitar if q in editables}
+
+        # --- 1) Validar y armar la lista de cambios (sin escribir nada). ---
+        ediciones = []   # (línea, cantidad_nueva, precio_nuevo)
+        for lid, cant_txt, precio_txt in zip(linea_id, cantidad, precio):
+            if lid not in por_id:
+                return volver("Una de las prendas no pertenece a esta nota.")
+            if lid not in editables or lid in quitar_set:
+                continue
+            try:
+                cant = int(cant_txt.strip())
+            except ValueError:
+                return volver(f"Cantidad inválida en {por_id[lid]['sku']}.")
+            if cant <= 0:
+                return volver(f"La cantidad de {por_id[lid]['sku']} debe ser mayor a 0 (para quitarla usa la casilla Quitar).")
+            p = parsear_dinero(precio_txt)
+            if p is None or p < 0:
+                return volver(f"Precio inválido en {por_id[lid]['sku']}.")
+            ediciones.append((por_id[lid], cant, float(round(p))))
+
+        nuevas = []      # dicts listos para insertar
+        for prod_txt, tipo, cant_txt, precio_txt in zip(nuevo_producto_id, nuevo_tipo, nuevo_cantidad, nuevo_precio):
+            if not prod_txt.strip():
+                continue
+            tipo = tipo.strip()
+            if tipo not in ("menudeo", "mayoreo"):
+                return volver("Tipo de precio inválido en una prenda nueva.")
+            try:
+                cant = int(cant_txt.strip())
+            except ValueError:
+                return volver("Cantidad inválida en una prenda nueva.")
+            if cant <= 0:
+                return volver("La cantidad de una prenda nueva debe ser mayor a 0.")
+            producto = conn.execute(text(
+                "SELECT id, sku, precio, precio_mayoreo, costo FROM productos WHERE id = :p AND activo = TRUE"
+            ), {"p": int(prod_txt)}).mappings().one_or_none()
+            if producto is None:
+                return volver("Una prenda nueva no existe o está eliminada.")
+            pn = parsear_dinero(precio_txt)
+            precio_final = resolver_precio_venta(producto, tipo, pn, None)
+            if precio_final is None:
+                return volver(f"Falta el precio de {producto['sku']}.")
+            nuevas.append({"producto": producto, "tipo": tipo, "cantidad": cant, "precio": float(round(precio_final))})
+
+        quedan = [l for l in lineas if l["id"] not in quitar_set]
+        if not quedan and not nuevas:
+            return volver("La nota se quedaría sin prendas; mejor usa Eliminar nota completa.")
+
+        # --- 2) Stock: lo que se libera contra lo que se necesita, por producto. ---
+        delta_stock: dict[int, int] = {}   # + = se consume más stock; − = se repone
+        for lid in quitar_set:
+            l = por_id[lid]
+            delta_stock[l["producto_id"]] = delta_stock.get(l["producto_id"], 0) - l["cantidad"]
+        for l, cant, _p in ediciones:
+            delta_stock[l["producto_id"]] = delta_stock.get(l["producto_id"], 0) + (cant - l["cantidad"])
+        for nv in nuevas:
+            pid = nv["producto"]["id"]
+            delta_stock[pid] = delta_stock.get(pid, 0) + nv["cantidad"]
+        for pid, delta in delta_stock.items():
+            if delta > 0:
+                disponible = conn.execute(text(
+                    "SELECT COALESCE((SELECT cantidad FROM stock WHERE producto_id = :p AND sucursal_id = :s), 0)"
+                ), {"p": pid, "s": sucursal_id}).scalar()
+                if disponible < delta:
+                    sku = conn.execute(text("SELECT sku FROM productos WHERE id = :p"), {"p": pid}).scalar()
+                    return volver(f"No hay suficiente stock de {sku} (hay {disponible}, se necesitan {delta} más).")
+
+        # --- 3) Pagos de las prendas editables: se toman, se borran y se
+        #        reacomodan al final entre las prendas que queden. ---
+        ids_pool = list(editables)
+        pool = []
+        if ids_pool:
+            pool = conn.execute(text(
+                "SELECT metodo, monto, creado_en FROM pagos WHERE venta_id IN :ids ORDER BY creado_en, id"
+            ).bindparams(bindparam("ids", expanding=True)), {"ids": ids_pool}).all()
+            conn.execute(text("DELETE FROM pagos WHERE venta_id IN :ids").bindparams(bindparam("ids", expanding=True)), {"ids": ids_pool})
+
+        # --- 4) Aplicar cambios. ---
+        etiqueta = f"nota #{base['numero_nota']}" if base["numero_nota"] else "nota"
+        for lid in quitar_set:
+            l = por_id[lid]
+            conn.execute(text(
+                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) VALUES (:p, :s, 'ajuste', :d, :m)"
+            ), {"p": l["producto_id"], "s": sucursal_id, "d": l["cantidad"],
+                "m": f"venta #{lid} quitada de la {etiqueta} editada (stock repuesto)"})
+            conn.execute(text("DELETE FROM ventas WHERE id = :i"), {"i": lid})
+        for l, cant, p in ediciones:
+            if cant != l["cantidad"]:
+                conn.execute(text(
+                    "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) VALUES (:p, :s, 'ajuste', :d, :m)"
+                ), {"p": l["producto_id"], "s": sucursal_id, "d": l["cantidad"] - cant,
+                    "m": f"venta #{l['id']} de la {etiqueta} editada: cantidad {l['cantidad']} -> {cant}"})
+            cambio_precio = abs(p - float(l["precio_unitario"])) > 0.001
+            conn.execute(text(
+                "UPDATE ventas SET cantidad = :c, precio_unitario = :p, "
+                "       descuento_pct = CASE WHEN :cp THEN NULL ELSE descuento_pct END WHERE id = :i"
+            ), {"c": cant, "p": p, "cp": cambio_precio, "i": l["id"]})
+
+        # Una venta individual vieja sin pedido_id se agrupa con sus prendas nuevas.
+        pedido_nota = base["pedido_id"]
+        if pedido_nota is None and nuevas and base["id"] not in quitar_set:
+            pedido_nota = f"nota-{base['id']}"
+            conn.execute(text("UPDATE ventas SET pedido_id = :pd WHERE id = :i"), {"pd": pedido_nota, "i": base["id"]})
+
+        nuevas_ids = []
+        for nv in nuevas:
+            pr = nv["producto"]
+            conn.execute(text(
+                "INSERT INTO movimientos (producto_id, sucursal_id, tipo, delta, motivo) VALUES (:p, :s, 'venta', :d, :m)"
+            ), {"p": pr["id"], "s": sucursal_id, "d": -nv["cantidad"],
+                "m": f"venta {base['canal']} (agregada a la {etiqueta} editada)"})
+            nuevas_ids.append(conn.execute(text(
+                "INSERT INTO ventas (producto_id, sucursal_id, canal, tipo_precio, cantidad, precio_unitario, "
+                " costo_unitario, cliente_id, vendedora_id, descuento_pct, pedido_id, numero_nota, numero_ticket, apartado, creada_en) "
+                "VALUES (:p, :s, :canal, :tipo, :cant, :precio, :costo, :cliente, :vendedora, NULL, :pedido, :nn, :nt, :apartado, :fecha) "
+                "RETURNING id"
+            ), {
+                "p": pr["id"], "s": sucursal_id, "canal": base["canal"], "tipo": nv["tipo"], "cant": nv["cantidad"],
+                "precio": nv["precio"], "costo": pr["costo"], "cliente": base["cliente_id"], "vendedora": base["vendedora_id"],
+                "pedido": pedido_nota, "nn": base["numero_nota"], "nt": base["numero_ticket"],
+                "apartado": base["apartado"], "fecha": base["creada_en"],
+            }).scalar_one())
+
+        for pid, delta in delta_stock.items():
+            if delta:
+                conn.execute(text(
+                    "UPDATE stock SET cantidad = cantidad - :d, actualizado_en = NOW() "
+                    "WHERE producto_id = :p AND sucursal_id = :s"
+                ), {"p": pid, "s": sucursal_id, "d": delta})
+
+        # --- 5) Reacomodar los pagos entre las prendas editables que quedan. ---
+        nueva_cant = {l["id"]: (c, p) for (l, c, p) in ediciones}
+        destino = [(lid, round(nueva_cant[lid][0] * nueva_cant[lid][1], 2))
+                   for lid in sorted(editables) if lid not in quitar_set and lid in nueva_cant]
+        for nv, nid in zip(nuevas, nuevas_ids):
+            destino.append((nid, round(nv["precio"] * nv["cantidad"], 2)))
+        capacidad = {vid: tot for vid, tot in destino}
+        orden = [vid for vid, _ in destino]
+        if pool and orden:
+            for metodo, monto, creado_en in pool:
+                restante = round(float(monto), 2)
+                while restante > 0.004:
+                    libres = [v for v in orden if capacidad[v] > 0.004]
+                    vid = libres[0] if libres else orden[-1]
+                    toma = round(min(restante, capacidad[vid]), 2) if libres else restante
+                    conn.execute(text(
+                        "INSERT INTO pagos (venta_id, metodo, monto, creado_en) VALUES (:v, :m, :x, :c)"
+                    ), {"v": vid, "m": metodo, "x": toma, "c": creado_en})
+                    capacidad[vid] = round(capacidad[vid] - toma, 2)
+                    restante = round(restante - toma, 2)
+
+        # --- 6) Resumen y folios. ---
+        ids_finales = [l["id"] for l in quedan] + nuevas_ids
+        total_final = float(conn.execute(text(
+            "SELECT COALESCE(SUM(precio_unitario * cantidad), 0) FROM ventas WHERE id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True)), {"ids": ids_finales}).scalar())
+        pagado_final = float(conn.execute(text(
+            "SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE venta_id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True)), {"ids": ids_finales}).scalar())
+        saldo_final = round(total_final - pagado_final, 2)
+        if saldo_final > 0 and base["numero_nota"] is None:
+            conn.execute(text("UPDATE ventas SET numero_nota = :n WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+                         {"n": siguiente_numero_nota(conn, sucursal_id), "ids": ids_finales})
+        elif saldo_final <= 0:
+            asignar_ticket_si_liquidada(conn, ids_finales)
+
+        cliente_id = base["cliente_id"]
+        productos_tocados = [pid for pid, d in delta_stock.items() if d]
+
+    if productos_tocados:
+        background_tasks.add_task(empujar_stock_productos_seguro, productos_tocados)
+
+    msg = f"Nota actualizada. Total ${total_final:,.2f} · pagado ${pagado_final:,.2f}"
+    msg += f" · saldo ${saldo_final:,.2f}." if saldo_final > 0 else "."
+    if saldo_final < 0:
+        msg += f" Ojo: la clienta ya había pagado ${-saldo_final:,.2f} de más; hay que devolvérselo o dejarlo a su cuenta."
+    destino_url = f"/clientas/{cliente_id}" if cliente_id else "/ventas"
+    return RedirectResponse(f"{destino_url}?ok={msg}", status_code=303)
+
+
 @app.post("/ventas/{venta_id}/devolucion", dependencies=[Depends(requiere_admin)])
 def registrar_devolucion(
     venta_id: int,
