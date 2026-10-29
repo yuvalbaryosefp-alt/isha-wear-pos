@@ -108,8 +108,9 @@
       </div>
       <div class="fila-form">
         <div>
-          <label for="v_monto_pagado">Monto pagado (opcional)</label>
+          <label for="v_monto_pagado">Recibo / monto pagado (opcional)</label>
           <input type="text" id="v_monto_pagado" name="monto_pagado" placeholder="Vacío = pagó todo">
+          <div id="v_cambio" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; background:#E3F5EA; color:#1a7a3c; font-weight:700; font-size:15px"></div>
         </div>
         <div>
           <label for="v_metodo_pago">Método de pago</label>
@@ -236,6 +237,29 @@
           e.preventDefault();
         }
       });
+    })();
+
+    // Cambio en vivo: si lo que recibe es más que el total de la venta,
+    // muestra cuánto hay que devolver (ej. total $750, recibe $1000 → cambio $250).
+    // Se revisa también por intervalo porque el precio se llena por código
+    // (al elegir el SKU) sin disparar el evento "input".
+    (function () {
+      var montoEl = document.getElementById('v_monto_pagado');
+      var cambioEl = document.getElementById('v_cambio');
+      function dinero(n) { return '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+      function actualizar() {
+        var precio = parseFloat(document.getElementById('v_precio').value);
+        var cant = parseInt(document.getElementById('v_cantidad').value, 10);
+        var desc = parseFloat(document.getElementById('v_descuento').value);
+        var recibo = parseFloat(montoEl.value.replace(/[$,\s]/g, ''));
+        if (isNaN(precio) || isNaN(cant) || isNaN(recibo)) { cambioEl.style.display = 'none'; return; }
+        var total = (isNaN(desc) ? Math.round(precio) : Math.round(precio * (1 - desc / 100))) * cant;
+        if (recibo <= total) { cambioEl.style.display = 'none'; return; }
+        cambioEl.style.display = '';
+        cambioEl.textContent = 'Total ' + dinero(total) + ' · Recibo ' + dinero(recibo) + ' → Cambio: ' + dinero(recibo - total);
+      }
+      montoEl.addEventListener('input', actualizar);
+      setInterval(actualizar, 300);
     })();
 
     // "No pagó nada" deja claro que no hace falta escribir 0 ni dejarlo

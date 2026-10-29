@@ -922,20 +922,25 @@ def registrar_pago(venta_id: int, metodo: str = Form(...), monto: str = Form(...
         ), {"id": venta_id}).scalar()
         saldo = round(total - float(pagado_actual), 2)
 
-        if monto_num > saldo:
-            return RedirectResponse(
-                f"/ventas?error=El abono (${monto_num:.2f}) es mayor al saldo pendiente (${saldo:.2f}).",
-                status_code=303,
-            )
+        if saldo <= 0:
+            return RedirectResponse("/ventas?error=Esta venta no tiene saldo pendiente.", status_code=303)
+
+        # Si dio más que el saldo (ej. debía $750 y pagó con $1000), solo se
+        # registra el saldo y la diferencia es cambio a entregar.
+        cambio = round(max(0.0, monto_num - saldo), 2)
+        monto_registrado = min(monto_num, saldo)
 
         conn.execute(text(
             "INSERT INTO pagos (venta_id, metodo, monto) VALUES (:v, :metodo, :monto)"
-        ), {"v": venta_id, "metodo": metodo, "monto": monto_num})
+        ), {"v": venta_id, "metodo": metodo, "monto": monto_registrado})
         asignar_ticket_si_liquidada(conn, [venta_id])
 
     # Manda directo al comprobante imprimible del abono, en vez de solo
     # regresar a la lista.
-    return RedirectResponse(f"/ventas/nota?id={venta_id}", status_code=303)
+    query = f"id={venta_id}"
+    if cambio > 0:
+        query += f"&cambio={cambio:.2f}&recibido={monto_num:.2f}"
+    return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
 @app.post("/ventas/{venta_id}/apartado", dependencies=[Depends(requiere_admin)])
@@ -1472,6 +1477,7 @@ def nota_pedido(
     id: list[int] = Query(default=[]),
     copias: int = Query(default=1),
     cambio: float = Query(default=0.0),
+    recibido: float = Query(default=0.0),
     identidad: Identidad = Depends(requiere_login),
 ):
     """Genera una nota de pedido imprimible con varias ventas juntas (ej. las
@@ -1589,6 +1595,7 @@ def nota_pedido(
         "fecha": datetime.now(ZONA_CDMX),
         "copias": copias,
         "cambio": cambio,
+        "recibido": recibido,
         "desglose_pagos": desglose_pagos,
     })
 
@@ -2261,11 +2268,10 @@ def abonar_saldo_clienta(
         saldo_total = round(sum(float(v["saldo"]) for v in ventas_deuda), 2)
         if saldo_total <= 0:
             return RedirectResponse(f"{siguiente}?error=Esta clienta no tiene saldo pendiente.", status_code=303)
-        if monto_num > saldo_total:
-            return RedirectResponse(
-                f"{siguiente}?error=El abono (${monto_num:.2f}) es mayor a la deuda total (${saldo_total:.2f}).",
-                status_code=303,
-            )
+        # Si dio más que la deuda total, se registra la deuda y lo demás es cambio.
+        recibido = monto_num
+        cambio = round(max(0.0, monto_num - saldo_total), 2)
+        monto_num = min(monto_num, saldo_total)
 
         restante = monto_num
         ventas_tocadas = []
@@ -2284,6 +2290,8 @@ def abonar_saldo_clienta(
     # (las ventas que de verdad recibieron parte del pago, sin importar a
     # cuántas notas distintas pertenecían), en vez de solo regresar.
     query = "&".join(f"id={vid}" for vid in ventas_tocadas)
+    if cambio > 0:
+        query += f"&cambio={cambio:.2f}&recibido={recibido:.2f}"
     return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 
@@ -2321,11 +2329,10 @@ def abonar_nota(
         saldo_nota = round(sum(float(v["saldo"]) for v in ventas_deuda), 2)
         if saldo_nota <= 0:
             return RedirectResponse(f"/clientas/{cliente_id}?error=Esta nota no tiene saldo pendiente.", status_code=303)
-        if monto_num > saldo_nota:
-            return RedirectResponse(
-                f"/clientas/{cliente_id}?error=El abono (${monto_num:.2f}) es mayor al saldo de esta nota (${saldo_nota:.2f}).",
-                status_code=303,
-            )
+        # Si dio más que el saldo de la nota, se registra el saldo y lo demás es cambio.
+        recibido = monto_num
+        cambio = round(max(0.0, monto_num - saldo_nota), 2)
+        monto_num = min(monto_num, saldo_nota)
 
         restante = monto_num
         for v in ventas_deuda:
@@ -2341,6 +2348,8 @@ def abonar_nota(
     # Manda directo al comprobante imprimible de esta nota completa (todas
     # sus prendas, no solo las que tocó este abono en particular).
     query = "&".join(f"id={vid}" for vid in id)
+    if cambio > 0:
+        query += f"&cambio={cambio:.2f}&recibido={recibido:.2f}"
     return RedirectResponse(f"/ventas/nota?{query}", status_code=303)
 
 

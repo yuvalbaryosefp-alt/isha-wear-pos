@@ -160,7 +160,7 @@
           {% if cambio %}
             <tr>
               <td class="label">Recibido:</td>
-              <td class="valor">${{ "%.2f"|format(total + cambio|float) }}</td>
+              <td class="valor">${{ "%.2f"|format(recibido if recibido else total + cambio|float) }}</td>
             </tr>
             <tr>
               <td class="label">Cambio:</td>

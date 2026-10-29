@@ -96,8 +96,9 @@
 
       <div class="fila-form" style="margin-top:16px">
         <div>
-          <label for="c_monto_pagado">Monto pagado (opcional)</label>
+          <label for="c_monto_pagado">Recibo / monto pagado (opcional)</label>
           <input type="text" id="c_monto_pagado" name="monto_pagado" placeholder="Vacío = pagó todo">
+          <div id="c_cambio" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; background:#E3F5EA; color:#1a7a3c; font-weight:700; font-size:15px"></div>
         </div>
         <div>
           <label for="c_metodo_pago">Método de pago</label>
@@ -317,7 +318,25 @@
         }
       });
       document.getElementById('total-carrito').textContent = '$' + total.toFixed(0);
+      window.TOTAL_CARRITO = total;
+      if (window.actualizarCambio) window.actualizarCambio();
     }
+
+    // Cambio en vivo: si lo que recibe es más que el total del pedido,
+    // muestra cuánto hay que devolver (ej. total $750, recibe $1000 → cambio $250).
+    (function () {
+      var montoEl = document.getElementById('c_monto_pagado');
+      var cambioEl = document.getElementById('c_cambio');
+      function dinero(n) { return '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+      window.actualizarCambio = function () {
+        var total = window.TOTAL_CARRITO || 0;
+        var recibo = parseFloat(montoEl.value.replace(/[$,\s]/g, ''));
+        if (isNaN(recibo) || recibo <= total) { cambioEl.style.display = 'none'; return; }
+        cambioEl.style.display = '';
+        cambioEl.textContent = 'Total ' + dinero(total) + ' · Recibo ' + dinero(recibo) + ' → Cambio: ' + dinero(recibo - total);
+      };
+      montoEl.addEventListener('input', window.actualizarCambio);
+    })();
 
     // Enter en cualquier campo de una prenda NO envía la venta: confirma esa
     // prenda y abre una fila nueva lista para el siguiente SKU. La venta solo
