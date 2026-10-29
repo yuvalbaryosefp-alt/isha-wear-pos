@@ -161,6 +161,7 @@
                   </td>
                   <td>
                     <span style="color:var(--texto-tenue); font-size:12px">{{ it.sku }}</span> {{ it.titulo }}
+                    {% if it.descuento_txt %}<span style="color:var(--rojo); font-size:12px; white-space:nowrap">(-{{ it.descuento_txt }}% desc.)</span>{% endif %}
                     {% if it.devolucion_tipo %}
                       <span class="badge" style="background:var(--ambar-suave); color:var(--ambar)">
                         {{ "Devuelta" if it.devolucion_tipo == "devolucion" else "Cambio" }}
@@ -178,6 +179,7 @@
 
         <div style="display:flex; justify-content:flex-end; gap:18px; margin-top:10px; font-size:13px; flex-wrap:wrap">
           <span>Prendas: <strong>{{ n.piezas }}</strong></span>
+          {% if n.descuento_resumen %}<span style="color:var(--rojo)"><strong>{{ n.descuento_resumen }}</strong></span>{% endif %}
           <span>Total: <strong>${{ "%.2f"|format(n.total) }}</strong></span>
           <span>Pagado: <strong>${{ "%.2f"|format(n.pagado) }}</strong></span>
           <span style="color:{{ 'var(--rojo)' if n.saldo > 0 else 'inherit' }}">

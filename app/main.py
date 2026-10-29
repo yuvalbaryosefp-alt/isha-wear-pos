@@ -57,6 +57,27 @@ DIAS_CUMPLE_PROXIMO = 30
 # El envío se registra como un producto más (SKU "NV"); no cuenta como prenda.
 SKU_ENVIO = "NV"
 
+
+def formato_pct(d) -> str:
+    """30.00 -> "30", 27.92 -> "27.92" (sin ceros de sobra)."""
+    return f"{float(d):.2f}".rstrip("0").rstrip(".")
+
+
+def resumen_descuento(prendas) -> str | None:
+    """Texto del descuento de una nota a partir de sus líneas (dicts con
+    sku, cantidad y descuento_pct). None si no hubo descuento."""
+    reales = [p for p in prendas if p["sku"] != SKU_ENVIO]
+    con = [p for p in reales if p.get("descuento_pct")]
+    if not con:
+        return None
+    pcts = sorted({float(p["descuento_pct"]) for p in con})
+    texto_pcts = ", ".join(formato_pct(x) + "%" for x in pcts)
+    if len(con) == len(reales):
+        return f"Descuento: {texto_pcts}"
+    piezas_con = sum(p["cantidad"] for p in con)
+    piezas_total = sum(p["cantidad"] for p in reales)
+    return f"Descuento en {piezas_con} de {piezas_total} prendas: {texto_pcts}"
+
 MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
@@ -1508,7 +1529,7 @@ def nota_pedido(
     with engine.connect() as conn:
         filas = conn.execute(ids_stmt(
             "SELECT v.id, p.titulo, p.sku, v.cantidad, v.precio_unitario, c.nombre AS clienta, "
-            "       v.numero_nota, v.numero_ticket, s.nombre AS sucursal, ve.nombre AS vendedora "
+            "       v.numero_nota, v.numero_ticket, v.descuento_pct, s.nombre AS sucursal, ve.nombre AS vendedora "
             "FROM ventas v "
             "JOIN productos p ON p.id = v.producto_id "
             "JOIN sucursales s ON s.id = v.sucursal_id "
@@ -1559,6 +1580,8 @@ def nota_pedido(
             "titulo": f["titulo"], "sku": f["sku"],
             "cantidad": f["cantidad"], "precio_unitario": float(f["precio_unitario"]),
             "subtotal": subtotal,
+            "descuento_pct": float(f["descuento_pct"]) if f["descuento_pct"] else None,
+            "descuento_txt": formato_pct(f["descuento_pct"]) if f["descuento_pct"] else None,
         })
 
     # Si todas las ventas seleccionadas son de la misma clienta, se muestra su
@@ -1584,6 +1607,7 @@ def nota_pedido(
     return templates.TemplateResponse(request, "nota_pedido.html", {
         "items": items,
         "total_prendas": total_prendas,
+        "descuento_resumen": resumen_descuento(items),
         "total": total,
         "pagado": pagado_total,
         "saldo": saldo,
@@ -2447,6 +2471,8 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None, ok:
             "id": c["id"], "titulo": c["titulo"], "sku": c["sku"], "cantidad": c["cantidad"],
             "precio_unitario": float(c["precio_unitario"]), "subtotal": subtotal,
             "devolucion_tipo": c["devolucion_tipo"],
+            "descuento_pct": float(c["descuento_pct"]) if c["descuento_pct"] else None,
+            "descuento_txt": formato_pct(c["descuento_pct"]) if c["descuento_pct"] else None,
         })
         nota["total"] += subtotal
         nota["pagado"] += float(c["pagado_venta"])
@@ -2459,6 +2485,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None, ok:
     for clave in orden_claves:
         nota = notas_por_clave[clave]
         nota["saldo"] = round(nota["total"] - nota["pagado"], 2)
+        nota["descuento_resumen"] = resumen_descuento(nota["prendas"])
         etiquetas_metodo = {"efectivo": "Efectivo", "tarjeta": "Tarjeta", "transferencia": "Transferencia"}
         nota["metodos"] = [
             {"metodo": etiquetas_metodo[m], "monto": nota["metodos"][m]}

@@ -46,6 +46,7 @@
     .item-subtotal { font-weight: 600; }
 
     .total-prendas { text-align: right; font-size: 13px; margin-top: 4px; }
+    .item-desc { color: #B02A2A; font-size: 12px; white-space: nowrap; }
     .totales { width: 100%; margin-top: 10px; }
     .totales td { border: none; padding: 3px 0; font-size: 13px; }
     .totales .label { text-align: right; font-weight: 600; }
@@ -95,6 +96,7 @@
       .item-sku { font-size: 9px; }
       .item-detalle { font-size: 11px; }
       .total-prendas { font-size: 11px; }
+      .item-desc { font-size: 10px; }
       .totales { margin-top: 6px; }
       .totales td { font-size: 11px; }
       .totales .grande td { font-size: 13px; }
@@ -142,7 +144,7 @@
           <div class="item">
             <div class="item-titulo"><span class="item-sku">{{ it.sku }}</span> {{ it.titulo }}</div>
             <div class="item-detalle">
-              <span>{{ it.cantidad }} × Precio: ${{ "%.2f"|format(it.precio_unitario) }}</span>
+              <span>{{ it.cantidad }} × Precio: ${{ "%.2f"|format(it.precio_unitario) }}{% if it.descuento_txt %} <span class="item-desc">(-{{ it.descuento_txt }}% desc.)</span>{% endif %}</span>
               <span class="item-subtotal">Importe: ${{ "%.2f"|format(it.subtotal) }}</span>
             </div>
           </div>
@@ -151,6 +153,9 @@
 
       {% if total_prendas %}
         <div class="total-prendas">Total de prendas: <strong>{{ total_prendas }}</strong></div>
+      {% endif %}
+      {% if descuento_resumen %}
+        <div class="total-prendas"><strong>{{ descuento_resumen }}</strong></div>
       {% endif %}
 
       {% if pagado_completo %}
