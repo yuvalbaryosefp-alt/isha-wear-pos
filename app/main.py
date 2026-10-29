@@ -54,6 +54,9 @@ DIAS_SIN_COMPRAR_ALERTA = 60
 DIAS_CUMPLE_PROXIMO = 30
 
 # Canales de venta válidos y su nombre bonito para mostrar en pantalla/reportes.
+# El envío se registra como un producto más (SKU "NV"); no cuenta como prenda.
+SKU_ENVIO = "NV"
+
 MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
@@ -1576,9 +1579,11 @@ def nota_pedido(
     vendedora_nombre = next(iter(vendedoras_distintas)) if len(vendedoras_distintas) == 1 else None
 
     saldo = round(total - pagado_total, 2)
+    total_prendas = sum(it["cantidad"] for it in items if it["sku"] != SKU_ENVIO)
 
     return templates.TemplateResponse(request, "nota_pedido.html", {
         "items": items,
+        "total_prendas": total_prendas,
         "total": total,
         "pagado": pagado_total,
         "saldo": saldo,
@@ -2431,6 +2436,7 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None, ok:
                 "fecha": c["creada_en"].astimezone(ZONA_CDMX),
                 "total": 0.0,
                 "pagado": 0.0,
+                "piezas": 0,
                 "metodos": {},
             }
             orden_claves.append(clave)
@@ -2444,6 +2450,8 @@ def ver_clienta(request: Request, cliente_id: int, error: str | None = None, ok:
         })
         nota["total"] += subtotal
         nota["pagado"] += float(c["pagado_venta"])
+        if c["sku"] != SKU_ENVIO:
+            nota["piezas"] += c["cantidad"]
         for metodo, monto in metodos_por_venta.get(c["id"], {}).items():
             nota["metodos"][metodo] = nota["metodos"].get(metodo, 0.0) + monto
 

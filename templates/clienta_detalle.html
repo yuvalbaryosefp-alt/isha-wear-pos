@@ -177,6 +177,7 @@
         </div>
 
         <div style="display:flex; justify-content:flex-end; gap:18px; margin-top:10px; font-size:13px; flex-wrap:wrap">
+          <span>Prendas: <strong>{{ n.piezas }}</strong></span>
           <span>Total: <strong>${{ "%.2f"|format(n.total) }}</strong></span>
           <span>Pagado: <strong>${{ "%.2f"|format(n.pagado) }}</strong></span>
           <span style="color:{{ 'var(--rojo)' if n.saldo > 0 else 'inherit' }}">
